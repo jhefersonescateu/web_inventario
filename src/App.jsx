@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import QRManagerModule from './components/QRManagerModule';
+import AccessGate from './components/AccessGate';
+import FichaPatrimonialScanner from './components/FichaPatrimonialScanner';
 
 
 // Sample School Inventory Data - I.E. José Abelardo Quiñones
@@ -271,9 +273,59 @@ export default function App() {
   const [items, setItems] = useState(initialSchoolInventory);
   const [locations, setLocations] = useState(defaultLocations);
   
-  // Navigation Tabs state ('inventory' | 'qr')
-  const [activeMainTab, setActiveMainTab] = useState('inventory');
+  // Authentication state (requires entering QUIÑONES)
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('stockpile_auth') === 'true';
+  });
+
+  // Navigation Tabs state ('ficha' | 'inventory' | 'qr')
+  const [activeMainTab, setActiveMainTab] = useState('ficha');
   const [selectedQrItem, setSelectedQrItem] = useState(null);
+
+  // WebSocket connection to backend Node.js server for desktop synchronization
+  useEffect(() => {
+    let ws;
+    try {
+      ws = new WebSocket('ws://localhost:3001');
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'QR_SCANNED' && data.item) {
+            setItems(prev => {
+              const exists = prev.some(i => i.code === data.item.code);
+              if (exists) {
+                return prev.map(i => i.code === data.item.code ? { ...i, ...data.item } : i);
+              } else {
+                return [data.item, ...prev];
+              }
+            });
+            showToast(`📡 Sincronización en tiempo real: QR ${data.item.code}`);
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
+
+    return () => {
+      if (ws) ws.close();
+    };
+  }, []);
+
+  // Save/Update Item from Ficha Patrimonial Scanner
+  const handleSaveFromFicha = (savedItem) => {
+    setItems(prev => {
+      const exists = prev.some(i => i.code === savedItem.code || i.id === savedItem.id);
+      if (exists) {
+        return prev.map(i => (i.code === savedItem.code || i.id === savedItem.id) ? { ...i, ...savedItem } : i);
+      } else {
+        return [savedItem, ...prev];
+      }
+    });
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('stockpile_auth');
+    setIsAuthenticated(false);
+  };
   
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -534,8 +586,12 @@ export default function App() {
     showToast('📊 Reporte de inventario exportado en formato Excel / CSV.');
   };
 
+  if (!isAuthenticated) {
+    return <AccessGate onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
+
   return (
-    <div className="inventory-app">
+    <div className="mobile-app-shell">
       {/* Toast alert */}
       {toastMessage && (
         <div className="toast-notification">
@@ -543,555 +599,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Header Bar matching executive reference styling */}
-      <header className="header-card">
-        <div className="header-brand">
-          <div className="header-logo-badge">
-            🏫
-          </div>
-          <div className="header-title-box">
-            <h1>Inventario Escolar — I.E. José Abelardo Quiñones</h1>
-            <p>Módulo Institucional de Almacenamiento, Mobiliario y Equipamiento Tecnológico — Registro 2026</p>
-          </div>
-        </div>
-
-        <div className="header-actions">
-          <button className="btn btn-primary" onClick={handleOpenAddModal}>
-            <span>+</span> Registrar Nuevo Bien
-          </button>
-          <button className="btn btn-secondary" onClick={() => setIsLocationModalOpen(true)}>
-            <span>🏫</span> + Nueva Ubicación
-          </button>
-          <button className="btn btn-emerald" onClick={handleExportExcel}>
-            <span>📊</span> Exportar Excel (.xlsx)
-          </button>
-        </div>
-      </header>
-
-      {/* Main Navigation Tabs */}
-      <nav className="main-nav-bar">
-        <button 
-          className={`nav-tab-btn ${activeMainTab === 'inventory' ? 'active' : ''}`}
-          onClick={() => setActiveMainTab('inventory')}
-        >
-          <span>📦</span> Libro de Control de Inventario
-        </button>
-        <button 
-          className={`nav-tab-btn ${activeMainTab === 'qr' ? 'active' : ''}`}
-          onClick={() => setActiveMainTab('qr')}
-        >
-          <span>🏷️</span> Generador & Escáner QR de Etiquetas
-          <span className="nav-tab-badge">NUEVO</span>
-        </button>
-      </nav>
-
-      {activeMainTab === 'qr' ? (
-        <QRManagerModule
-          items={items}
-          locations={locations}
-          categoriesList={categoriesList}
-          onAddItem={(newItem) => setItems(prev => [newItem, ...prev])}
-          onUpdateItem={(updatedItem) => setItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item))}
-          showToast={showToast}
-          initialSelectedItem={selectedQrItem}
-        />
-      ) : (
-        <>
-          {/* Dynamic Metrics Cards Bar (4 columns) */}
-          <div className="kpi-grid">
-            <div className="kpi-card">
-              <div className="kpi-header">
-                <span className="kpi-title">TOTAL DE BIENES EN VISTA</span>
-                <div className="kpi-icon">📦</div>
-              </div>
-              <div className="kpi-value">{metrics.totalRecords} <span style={{ fontSize: '1.1rem', color: '#64748b', fontWeight: 500 }}>({metrics.totalQuantityUnits} unids)</span></div>
-              <div className="kpi-subtext">Registros catalogados en {selectedLocation}</div>
-            </div>
-
-            <div className="kpi-card kpi-teal">
-              <div className="kpi-header">
-                <span className="kpi-title">EQUIPOS TECNOLÓGICOS</span>
-                <div className="kpi-icon">💻</div>
-              </div>
-              <div className="kpi-value">{metrics.techCount} <span style={{ fontSize: '0.9rem', color: '#0d9488' }}>unidades</span></div>
-              <div className="kpi-subtext">Laptops, Proyectores, PCs y Periféricos</div>
-            </div>
-
-            <div className="kpi-card kpi-amber">
-              <div className="kpi-header">
-                <span className="kpi-title">MOBILIARIO ESCOLAR</span>
-                <div className="kpi-icon">🪑</div>
-              </div>
-              <div className="kpi-value">{metrics.furnitureCount} <span style={{ fontSize: '0.9rem', color: '#b45309' }}>unidades</span></div>
-              <div className="kpi-subtext">Mesas, Sillas, Pizarras y Estantes</div>
-            </div>
-
-            <div className="kpi-card kpi-indigo">
-              <div className="kpi-header">
-                <span className="kpi-title">ESTADO Y CONSERVACIÓN</span>
-                <div className="kpi-icon">✅</div>
-              </div>
-              <div className="kpi-value">{metrics.operationalPercent}% <span style={{ fontSize: '0.9rem', color: '#4f46e5' }}>Operativos</span></div>
-              <div className="kpi-subtext">
-                {metrics.goodCount} Óptimos | {metrics.regularCount} Regular | <span style={{ color: '#dc2626', fontWeight: 600 }}>{metrics.badCount} Malos/Baja</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Table Content Card */}
-          <main className="content-card">
-            <div className="table-header-bar">
-              <div className="table-title-row">
-                <h2>
-                  <span>Libro de Control de Inventario Escolar</span>
-                  <span className="table-badge-subtitle">Ubicación Actual: {selectedLocation}</span>
-                </h2>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button 
-                    className="btn btn-amber btn-sm" 
-                    onClick={() => {
-                      if (filteredItems.length > 0) setSelectedQrItem(filteredItems[0]);
-                      setActiveMainTab('qr');
-                    }}
-                  >
-                    🏷️ Generar Etiquetas QR
-                  </button>
-                </div>
-              </div>
-
-              {/* Filters and Search Row */}
-              <div className="filters-row">
-                <div className="search-box">
-                  <span className="search-icon">🔍</span>
-                  <input
-                    type="text"
-                    placeholder="Buscar por código, nombre de bien, marca, serie, aula..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-
-                <select
-                  className="filter-select"
-                  value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
-                >
-                  {locations.map((loc, idx) => (
-                    <option key={idx} value={loc}>
-                      📍 {loc}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  className="filter-select"
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                >
-                  {categoriesList.map((cat, idx) => (
-                    <option key={idx} value={cat}>
-                      📁 {cat}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  className="filter-select"
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                >
-                  <option value="Todos">⚡ Todos los Estados</option>
-                  <option value="Bueno">✓ Bueno / Operativo</option>
-                  <option value="Regular">⚠️ Regular</option>
-                  <option value="Malo">✕ Malo / De Baja</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Data Table */}
-            <div className="table-responsive">
-              <table className="inventory-table">
-                <thead>
-                  <tr>
-                    <th>CÓDIGO</th>
-                    <th>UBICACIÓN / AULA</th>
-                    <th>CLASE / CATEGORÍA</th>
-                    <th>NOMBRE DEL BIEN</th>
-                    <th>MARCA / MODELO</th>
-                    <th>ESPECIFICACIONES Y DETALLES</th>
-                    <th style={{ textAlign: 'center' }}>CANT.</th>
-                    <th>ESTADO</th>
-                    <th style={{ textAlign: 'center' }}>ACCIONES</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredItems.length > 0 ? (
-                    filteredItems.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <span className="code-tag">{item.code}</span>
-                        </td>
-                        <td>
-                          <span className="location-badge">
-                            📍 {item.location}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="category-tag">{item.category}</span>
-                        </td>
-                        <td>
-                          <div className="item-name">{item.name}</div>
-                          {item.notes && <div className="item-details-sub">📝 {item.notes}</div>}
-                        </td>
-                        <td>
-                          <div className="brand-text">{item.brand || 'MINEDU'}</div>
-                          <div className="item-details-sub">{item.model !== 'N/A' ? item.model : ''}</div>
-                        </td>
-                        <td>
-                          <div className="specs-text">{item.details}</div>
-                          {item.serialNumber && item.serialNumber !== 'N/A' && (
-                            <div className="item-details-sub" style={{ fontFamily: 'monospace' }}>
-                              S/N: {item.serialNumber}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <span className="qty-badge">{item.quantity}</span>
-                        </td>
-                        <td>
-                          {item.status === 'Bueno' && (
-                            <span className="status-badge status-bueno">✓ Bueno / Operativo</span>
-                          )}
-                          {item.status === 'Regular' && (
-                            <span className="status-badge status-regular">⚠️ Regular</span>
-                          )}
-                          {item.status === 'Malo' && (
-                            <span className="status-badge status-malo">✕ Malo / De baja</span>
-                          )}
-                        </td>
-                        <td>
-                          <div className="actions-cell" style={{ justifyContent: 'center' }}>
-                            <button
-                              className="btn-icon"
-                              title="Editar bien"
-                              onClick={() => handleOpenEditModal(item)}
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              className="btn-icon"
-                              title="Generar e Imprimir Etiqueta QR"
-                              onClick={() => {
-                                setSelectedQrItem(item);
-                                setActiveMainTab('qr');
-                              }}
-                            >
-                              🏷️
-                            </button>
-                            <button
-                              className="btn-icon"
-                              title="Duplicar registro"
-                              onClick={() => handleDuplicateItem(item)}
-                            >
-                              📋
-                            </button>
-                            <button
-                              className="btn-icon danger"
-                              title="Eliminar bien"
-                              onClick={() => handleDeleteItem(item.id, item.name)}
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="9">
-                        <div className="empty-state">
-                          <div className="empty-state-icon">🔍</div>
-                          <h3>No se encontraron bienes registrados</h3>
-                          <p style={{ marginTop: '4px', fontSize: '0.85rem' }}>
-                            No hay ítems que coincidan con la búsqueda o filtro seleccionado en <strong>{selectedLocation}</strong>.
-                          </p>
-                          <button 
-                            className="btn btn-primary btn-sm" 
-                            style={{ marginTop: '16px' }}
-                            onClick={handleOpenAddModal}
-                          >
-                            + Registrar Primer Bien en {selectedLocation}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer info bar */}
-            <div className="table-footer">
-              <div>
-                Mostrando <strong>{filteredItems.length}</strong> de <strong>{items.length}</strong> bienes registrados en total.
-              </div>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                <span>🏫 Institución Educativa José Abelardo Quiñones</span>
-                <span>|</span>
-                <span>Sistema Stockpile v2.5</span>
-              </div>
-            </div>
-          </main>
-        </>
-      )}
-
-      {/* Modal: ADD / EDIT ITEM */}
-      {isItemModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsItemModalOpen(false)}>
-          <div className="modal-card modal-card-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>
-                <span>{editingItem ? '✏️ Editar Registro de Bien' : '📦 Registrar Nuevo Bien Escolar'}</span>
-              </h3>
-              <button className="close-btn" onClick={() => setIsItemModalOpen(false)}>✕</button>
-            </div>
-            <form onSubmit={handleSaveItem}>
-              <div className="modal-body">
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label>Código Patrimonial / Tag ID *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej. QUI-MOB-001"
-                      value={formData.code}
-                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Ubicación / Aula *</label>
-                    <select
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    >
-                      {locations
-                        .filter(l => l !== 'Todas las Ubicaciones')
-                        .map((loc, idx) => (
-                          <option key={idx} value={loc}>{loc}</option>
-                        ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Clase / Categoría *</label>
-                    <select
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    >
-                      {categoriesList
-                        .filter(c => c !== 'Todas las Categorías')
-                        .map((cat, idx) => (
-                          <option key={idx} value={cat}>{cat}</option>
-                        ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Nombre del Bien / Objeto *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej. Mesa bipersonal, Laptop, Proyector..."
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Marca</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. MINEDU, Epson, Lenovo, HP..."
-                      value={formData.brand}
-                      onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Modelo</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. PowerLite 118, V15 G3, N/A..."
-                      value={formData.model}
-                      onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>N° de Serie (para Tecnología/Equipos)</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. LNV-2026-901 o N/A"
-                      value={formData.serialNumber}
-                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Cantidad *</label>
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      value={formData.quantity}
-                      onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Estado / Condición de Conservación *</label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    >
-                      <option value="Bueno">✓ Bueno / Operativo</option>
-                      <option value="Regular">⚠️ Regular (Funciona con detalles)</option>
-                      <option value="Malo">✕ Malo / Requiere Baja o Reparación</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group full-width">
-                    <label>Especificaciones / Descripción (Color, Medidas, Material)</label>
-                    <textarea
-                      rows="2"
-                      placeholder="Ej. Color Marrón claro, madera prensada con patas de fierro gris (120x50cm)..."
-                      value={formData.details}
-                      onChange={(e) => setFormData({ ...formData, details: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group full-width">
-                    <label>Observaciones Adicionales / Notas</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Entregado en lote 2024, requiere ajuste de perno en pata derecha..."
-                      value={formData.notes}
-                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setIsItemModalOpen(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  {editingItem ? 'Guardar Cambios' : 'Registrar Bien'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: PRINTABLE QR / TAG PREVIEW */}
-      {isTagModalOpen && tagItem && (
-        <div className="modal-overlay" onClick={() => setIsTagModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>🏷️ Ficha de Control Patrimonial — I.E. Quiñones</h3>
-              <button className="close-btn" onClick={() => setIsTagModalOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="asset-tag-card">
-                <div className="asset-tag-header">
-                  <h4>I.E. JOSÉ ABELARDO QUIÑONES</h4>
-                  <p>SISTEMA PATRIMONIAL INSTITUCIONAL</p>
-                </div>
-                
-                <div className="asset-tag-code">{tagItem.code}</div>
-                <div className="asset-tag-barcode"></div>
-
-                <div className="asset-tag-info">
-                  <p><strong>BIEN:</strong> {tagItem.name}</p>
-                  <p><strong>UBICACIÓN:</strong> {tagItem.location}</p>
-                  <p><strong>CATEGORÍA:</strong> {tagItem.category}</p>
-                  <p><strong>MARCA/MODELO:</strong> {tagItem.brand} {tagItem.model !== 'N/A' ? tagItem.model : ''}</p>
-                  {tagItem.serialNumber !== 'N/A' && <p><strong>N° SERIE:</strong> {tagItem.serialNumber}</p>}
-                  <p><strong>ESTADO:</strong> {tagItem.status}</p>
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setIsTagModalOpen(false)}>
-                Cerrar
-              </button>
-              <button 
-                className="btn btn-primary"
-                onClick={() => {
-                  window.print();
-                }}
-              >
-                🖨️ Imprimir Etiqueta / QR
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: GESTIONAR UBICACIONES / AULAS */}
-      {isLocationModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsLocationModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>🏫 Gestión de Aulas y Ubicaciones</h3>
-              <button className="close-btn" onClick={() => setIsLocationModalOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <form onSubmit={handleAddLocation} style={{ marginBottom: '20px' }}>
-                <div className="form-group">
-                  <label>Nombre de la Nueva Ubicación / Aula</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej. Aula-06, Taller de Robótica, Auditórium..."
-                      value={newLocationInput}
-                      onChange={(e) => setNewLocationInput(e.target.value)}
-                    />
-                    <button type="submit" className="btn btn-primary">
-                      + Agregar
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              <h4 style={{ fontSize: '0.85rem', marginBottom: '10px', color: '#475569' }}>
-                Ubicaciones Registradas ({locations.length - 1}):
-              </h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {locations
-                  .filter(l => l !== 'Todas las Ubicaciones')
-                  .map((loc, idx) => (
-                    <div 
-                      key={idx} 
-                      className="location-badge"
-                      style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                    >
-                      📍 {loc}
-                    </div>
-                  ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setIsLocationModalOpen(false)}>
-                Listo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Main Mobile App Interface */}
+      <FichaPatrimonialScanner
+        items={items}
+        onSaveItem={handleSaveFromFicha}
+        showToast={showToast}
+        onLogout={handleLogout}
+      />
     </div>
   );
 }
+
