@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 export default function AccessGate({ onAuthenticated }) {
   const [accessCode, setAccessCode] = useState('');
+  const [dni, setDni] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -14,19 +15,25 @@ export default function AccessGate({ onAuthenticated }) {
       return;
     }
 
-    setIsLoading(true);
-
     const cleanInput = accessCode.trim().toUpperCase();
+    const cleanDni = dni.trim();
 
     // Validate code: QUIÑONES or QUINONES
     if (cleanInput === 'QUIÑONES' || cleanInput === 'QUINONES') {
+      if (!cleanDni) {
+        setErrorMsg('⚠️ Ingrese su número de DNI para identificar quién está ingresando.');
+        return;
+      }
+      setIsLoading(true);
       setTimeout(() => {
         setIsLoading(false);
         // Save session in sessionStorage
         sessionStorage.setItem('stockpile_auth', 'true');
-        onAuthenticated(cleanInput);
-      }, 500);
+        sessionStorage.setItem('stockpile_dni', cleanDni);
+        onAuthenticated({ code: cleanInput, dni: cleanDni });
+      }, 400);
     } else {
+      setIsLoading(true);
       setTimeout(() => {
         setIsLoading(false);
         setErrorMsg('❌ Código incorrecto. Debe ingresar: QUIÑONES');
@@ -49,33 +56,54 @@ export default function AccessGate({ onAuthenticated }) {
         <div className="access-divider"></div>
 
         <form onSubmit={handleSubmit} className="access-form">
-          <label htmlFor="access-code-input" className="access-label">
-            🔑 Código de Inventariado Requerido
-          </label>
+          <div className="access-field-group">
+            <label htmlFor="access-code-input" className="access-label">
+              🔑 Código de Inventariado Requerido
+            </label>
 
-          <div className="access-input-wrapper">
-            <input
-              id="access-code-input"
-              type="text"
-              className={`access-input ${errorMsg ? 'access-input-error' : ''}`}
-              placeholder="Ingrese código (ej: QUIÑONES)"
-              value={accessCode}
-              onChange={(e) => setAccessCode(e.target.value)}
-              autoFocus
-              autoComplete="off"
-            />
+            <div className="access-input-wrapper">
+              <input
+                id="access-code-input"
+                type="text"
+                className={`access-input ${errorMsg && !accessCode ? 'access-input-error' : ''}`}
+                placeholder="Ingrese código (ej: QUIÑONES)"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                autoFocus
+                autoComplete="off"
+              />
+            </div>
           </div>
 
-          {errorMsg && <div className="access-error-box">{errorMsg}</div>}
+          <div className="access-field-group" style={{ marginTop: '12px' }}>
+            <label htmlFor="access-dni-input" className="access-label">
+              🆔 DNI del Personal / Inventariador
+            </label>
 
-          <div className="access-hint">
-            💡 <strong>Sugerencia:</strong> Ingrese <code>QUIÑONES</code> para ingresar al sistema de escaneo e inventario.
+            <div className="access-input-wrapper">
+              <input
+                id="access-dni-input"
+                type="text"
+                className={`access-input ${errorMsg && !dni ? 'access-input-error' : ''}`}
+                placeholder="Ingrese su N° de DNI (ej: 74839201)"
+                value={dni}
+                onChange={(e) => setDni(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
+          {errorMsg && <div className="access-error-box" style={{ marginTop: '12px' }}>{errorMsg}</div>}
+
+          <div className="access-hint" style={{ marginTop: '12px' }}>
+            💡 <strong>Instrucciones:</strong> Ingrese el código <code>QUIÑONES</code> y su número de DNI para registrar e identificar las lecturas de su dispositivo.
           </div>
 
           <button 
             type="submit" 
             className="access-btn-submit"
             disabled={isLoading}
+            style={{ marginTop: '8px' }}
           >
             {isLoading ? 'Verificando...' : 'Ingresar al Inventario →'}
           </button>
@@ -88,3 +116,4 @@ export default function AccessGate({ onAuthenticated }) {
     </div>
   );
 }
+

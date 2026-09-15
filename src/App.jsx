@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import QRManagerModule from './components/QRManagerModule';
 import AccessGate from './components/AccessGate';
 import FichaPatrimonialScanner from './components/FichaPatrimonialScanner';
+import MyInventoriedView from './components/MyInventoriedView';
 
 
 // Sample School Inventory Data - I.E. José Abelardo Quiñones
@@ -270,17 +271,52 @@ const defaultLocations = [
 ];
 
 export default function App() {
-  const [items, setItems] = useState(initialSchoolInventory);
+  // Real inventory items (Starts empty or loaded from MongoDB Atlas / localStorage)
+  const [items, setItems] = useState(() => {
+    try {
+      const savedLocal = localStorage.getItem('stockpile_real_inventory');
+      return savedLocal ? JSON.parse(savedLocal) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [locations, setLocations] = useState(defaultLocations);
   
-  // Authentication state (requires entering QUIÑONES)
+  // Authentication state (requires entering QUIÑONES + DNI)
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('stockpile_auth') === 'true';
   });
 
-  // Navigation Tabs state ('ficha' | 'inventory' | 'qr')
-  const [activeMainTab, setActiveMainTab] = useState('ficha');
-  const [selectedQrItem, setSelectedQrItem] = useState(null);
+  const [userDni, setUserDni] = useState(() => {
+    return sessionStorage.getItem('stockpile_dni') || '';
+  });
+
+  // Active View state ('home' | 'scan' | 'inventory')
+  const [activeView, setActiveView] = useState('home');
+  const [autoStartCamera, setAutoStartCamera] = useState(false);
+
+  // Count items inventoried by current user DNI
+  const userInventoriedCount = useMemo(() => {
+    return items.filter(item => item.scannedByDni === userDni || (!item.scannedByDni && item.operatorDni === userDni)).length;
+  }, [items, userDni]);
+
+  // Fetch real inventory items from MongoDB Atlas backend API on load
+  useEffect(() => {
+    const fetchRealInventory = async () => {
+      try {
+        const res = await fetch('http://localhost:3001/api/inventory');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.items)) {
+          setItems(data.items);
+          localStorage.setItem('stockpile_real_inventory', JSON.stringify(data.items));
+        }
+      } catch (err) {
+        console.log('Backend offline o reconectando...');
+      }
+    };
+    fetchRealInventory();
+  }, []);
 
   // WebSocket connection to backend Node.js server for desktop synchronization
   useEffect(() => {
@@ -293,13 +329,22 @@ export default function App() {
           if (data.type === 'QR_SCANNED' && data.item) {
             setItems(prev => {
               const exists = prev.some(i => i.code === data.item.code);
-              if (exists) {
-                return prev.map(i => i.code === data.item.code ? { ...i, ...data.item } : i);
-              } else {
-                return [data.item, ...prev];
-              }
+              const nextState = exists
+                ? prev.map(i => i.code === data.item.code ? { ...i, ...data.item } : i)
+                : [data.item, ...prev];
+              localStorage.setItem('stockpile_real_inventory', JSON.stringify(nextState));
+              return nextState;
             });
             showToast(`📡 Sincronización en tiempo real: QR ${data.item.code}`);
+          } else if (data.type === 'QR_SCANNED' && data.action === 'DELETE') {
+            setItems(prev => {
+              const nextState = prev.filter(i => i.code !== data.code && i.id !== data.code);
+              localStorage.setItem('stockpile_real_inventory', JSON.stringify(nextState));
+              return nextState;
+            });
+          } else if (data.type === 'QR_SCANNED' && data.action === 'CLEAR_ALL') {
+            setItems([]);
+            localStorage.setItem('stockpile_real_inventory', JSON.stringify([]));
           }
         } catch (e) {}
       };
@@ -310,21 +355,39 @@ export default function App() {
     };
   }, []);
 
-  // Save/Update Item from Ficha Patrimonial Scanner
+  // Save/Update Item to Real Inventory (MongoDB Atlas + LocalStorage)
   const handleSaveFromFicha = (savedItem) => {
     setItems(prev => {
       const exists = prev.some(i => i.code === savedItem.code || i.id === savedItem.id);
-      if (exists) {
-        return prev.map(i => (i.code === savedItem.code || i.id === savedItem.id) ? { ...i, ...savedItem } : i);
-      } else {
-        return [savedItem, ...prev];
-      }
+      const nextState = exists
+        ? prev.map(i => (i.code === savedItem.code || i.id === savedItem.id) ? { ...i, ...savedItem } : i)
+        : [savedItem, ...prev];
+      localStorage.setItem('stockpile_real_inventory', JSON.stringify(nextState));
+      return nextState;
     });
+
+    // Send POST to MongoDB Atlas API server
+    fetch('http://localhost:3001/api/inventory/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(savedItem)
+    }).catch(err => console.error('Error al guardar en backend:', err));
+  };
+
+  const handleAuthenticated = (data) => {
+    if (data && data.dni) {
+      setUserDni(data.dni);
+    }
+    setIsAuthenticated(true);
+    setActiveView('home');
   };
 
   const handleLogout = () => {
     sessionStorage.removeItem('stockpile_auth');
+    sessionStorage.removeItem('stockpile_dni');
     setIsAuthenticated(false);
+    setUserDni('');
+    setActiveView('home');
   };
   
   // Filters & Search
@@ -369,113 +432,34 @@ export default function App() {
     notes: ''
   });
 
-  // Open modal for NEW item
-  const handleOpenAddModal = () => {
-    const nextNum = items.length + 1;
-    const autoCode = `QUI-REG-${String(nextNum).padStart(3, '0')}`;
-    setEditingItem(null);
-    setFormData({
-      code: autoCode,
-      location: selectedLocation !== 'Todas las Ubicaciones' ? selectedLocation : 'Aula-05',
-      category: 'Mobiliario Escolar',
-      name: '',
-      brand: '',
-      model: '',
-      serialNumber: 'N/A',
-      details: '',
-      quantity: 1,
-      status: 'Bueno',
-      notes: ''
-    });
-    setIsItemModalOpen(true);
-  };
-
-  // Open modal for EDIT item
-  const handleOpenEditModal = (item) => {
-    setEditingItem(item);
-    setFormData({
-      code: item.code,
-      location: item.location,
-      category: item.category,
-      name: item.name,
-      brand: item.brand || '',
-      model: item.model || '',
-      serialNumber: item.serialNumber || 'N/A',
-      details: item.details || '',
-      quantity: item.quantity,
-      status: item.status,
-      notes: item.notes || ''
-    });
-    setIsItemModalOpen(true);
-  };
-
-  // Save Item (Create or Update)
-  const handleSaveItem = (e) => {
-    e.preventDefault();
-    if (!formData.name.trim() || !formData.code.trim()) {
-      alert('Por favor complete el nombre y el código del bien.');
-      return;
-    }
-
-    if (editingItem) {
-      // Update
-      setItems(prev => prev.map(item => item.id === editingItem.id ? { ...formData, id: editingItem.id } : item));
-      showToast(`✅ Bien "${formData.name}" actualizado correctamente.`);
-    } else {
-      // Create
-      const newItem = {
-        ...formData,
-        id: formData.code || `QUI-${Date.now()}`
-      };
-      setItems(prev => [newItem, ...prev]);
-      showToast(`📦 Nuevo bien "${formData.name}" registrado en ${formData.location}.`);
-    }
-    setIsItemModalOpen(false);
-  };
-
-  // Duplicate Item
-  const handleDuplicateItem = (item) => {
-    const nextNum = items.length + 1;
-    const duplicated = {
-      ...item,
-      id: `QUI-DUP-${Date.now()}`,
-      code: `QUI-REG-${String(nextNum).padStart(3, '0')}`,
-      name: `${item.name} (Copia)`
-    };
-    setItems([duplicated, ...items]);
-    showToast(`📋 Copia duplicada creada: ${duplicated.code}`);
-  };
-
-  // Delete Item
+  // Delete Real Item (MongoDB + LocalStorage)
   const handleDeleteItem = (id, name) => {
-    if (window.confirm(`¿Está seguro de eliminar el bien "${name}" del inventario?`)) {
-      setItems(prev => prev.filter(item => item.id !== id));
+    if (window.confirm(`¿Está seguro de eliminar el bien "${name}" del inventario real?`)) {
+      setItems(prev => {
+        const nextState = prev.filter(item => item.id !== id && item.code !== id);
+        localStorage.setItem('stockpile_real_inventory', JSON.stringify(nextState));
+        return nextState;
+      });
+
+      // Send DELETE to backend API
+      fetch(`http://localhost:3001/api/inventory/${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Error al borrar de backend:', err));
+
       showToast(`🗑️ Bien "${name}" eliminado del inventario.`);
     }
   };
 
-  // Printable QR Tag Modal
-  const handleOpenTagModal = (item) => {
-    setTagItem(item);
-    setIsTagModalOpen(true);
-  };
-
-
-  // Add new classroom location
-  const handleAddLocation = (e) => {
-    e.preventDefault();
-    if (!newLocationInput.trim()) return;
-    const formatted = newLocationInput.trim();
-    if (locations.includes(formatted)) {
-      alert('Esta ubicación ya se encuentra registrada.');
-      return;
+  // Clear All Real Data
+  const handleClearAllInventory = () => {
+    if (window.confirm('⚠️ ¿Desea vaciar TODO el inventario registrado y empezar desde cero?')) {
+      setItems([]);
+      localStorage.setItem('stockpile_real_inventory', JSON.stringify([]));
+      fetch('http://localhost:3001/api/inventory/clear-all', { method: 'POST' }).catch(() => {});
+      showToast('🧹 Inventario vaciado por completo.');
     }
-    setLocations([...locations, formatted]);
-    setSelectedLocation(formatted);
-    setNewLocationInput('');
-    setIsLocationModalOpen(false);
-    showToast(`🏫 Nueva ubicación "${formatted}" agregada con éxito.`);
   };
+
 
   // Filter Items
   const filteredItems = useMemo(() => {
@@ -503,91 +487,8 @@ export default function App() {
     });
   }, [items, searchQuery, selectedLocation, selectedCategory, selectedStatus]);
 
-  // Dynamic KPI Metrics
-  const metrics = useMemo(() => {
-    const totalRecords = filteredItems.length;
-    const totalQuantityUnits = filteredItems.reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
-    
-    const techCount = filteredItems
-      .filter(i => i.category === 'Equipos Tecnológicos')
-      .reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
-
-    const furnitureCount = filteredItems
-      .filter(i => i.category === 'Mobiliario Escolar')
-      .reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
-
-    const goodCount = filteredItems.filter(i => i.status === 'Bueno').length;
-    const regularCount = filteredItems.filter(i => i.status === 'Regular').length;
-    const badCount = filteredItems.filter(i => i.status === 'Malo').length;
-
-    const operationalPercent = totalRecords > 0 ? Math.round(((goodCount + regularCount) / totalRecords) * 100) : 100;
-
-    return {
-      totalRecords,
-      totalQuantityUnits,
-      techCount,
-      furnitureCount,
-      goodCount,
-      regularCount,
-      badCount,
-      operationalPercent
-    };
-  }, [filteredItems]);
-
-  // Export to Excel / CSV
-  const handleExportExcel = () => {
-    if (filteredItems.length === 0) {
-      alert('No hay datos para exportar con los filtros actuales.');
-      return;
-    }
-
-    const headers = [
-      'CÓDIGO',
-      'UBICACIÓN',
-      'CATEGORÍA',
-      'BIEN / OBJETO',
-      'MARCA',
-      'MODELO',
-      'SERIE',
-      'DETALLES / ESPECIFICACIONES',
-      'CANTIDAD',
-      'ESTADO',
-      'OBSERVACIONES'
-    ];
-
-    const csvRows = [headers.join(',')];
-
-    filteredItems.forEach(item => {
-      const row = [
-        `"${item.code}"`,
-        `"${item.location}"`,
-        `"${item.category}"`,
-        `"${item.name}"`,
-        `"${item.brand}"`,
-        `"${item.model}"`,
-        `"${item.serialNumber}"`,
-        `"${item.details.replace(/"/g, '""')}"`,
-        item.quantity,
-        `"${item.status}"`,
-        `"${(item.notes || '').replace(/"/g, '""')}"`
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + csvRows.join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Inventario_Quiñones_${selectedLocation.replace(/\s+/g, '_')}_2026.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    showToast('📊 Reporte de inventario exportado en formato Excel / CSV.');
-  };
-
   if (!isAuthenticated) {
-    return <AccessGate onAuthenticated={() => setIsAuthenticated(true)} />;
+    return <AccessGate onAuthenticated={handleAuthenticated} />;
   }
 
   return (
@@ -599,13 +500,116 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Mobile App Interface */}
-      <FichaPatrimonialScanner
-        items={items}
-        onSaveItem={handleSaveFromFicha}
-        showToast={showToast}
-        onLogout={handleLogout}
-      />
+      {/* Screen 1: Home Menu (Only 2 main buttons) */}
+      {activeView === 'home' && (
+        <div className="ficha-page-container">
+          <div className="ficha-card-wrapper">
+            
+            {/* Header Bar */}
+            <div className="ficha-header-navy">
+              <div className="ficha-header-top font-serif">
+                <div className="jaq-avatar-yellow">
+                  <span>JAQ</span>
+                </div>
+                <button 
+                  type="button"
+                  className="btn-logout-mini" 
+                  onClick={handleLogout}
+                >
+                  🔒 Salir
+                </button>
+              </div>
+
+              <h1 className="ficha-header-title">Ficha Patrimonial</h1>
+              <p className="ficha-header-subtitle">Control de Bienes · Registro 2026</p>
+              <p className="ficha-institution-tag">I.E. JOSÉ ABELARDO QUIÑONES</p>
+
+              <div className="home-user-badge">
+                👤 Operador DNI: <strong>{userDni || 'No registrado'}</strong>
+              </div>
+            </div>
+
+            {/* Body with ONLY the 2 Main Action Buttons requested */}
+            <div className="ficha-body-cream home-menu-body">
+              <h3 className="home-menu-prompt">Seleccione una opción:</h3>
+
+              <div className="home-action-cards">
+                {/* Button 1: Escanear QR */}
+                <button 
+                  type="button"
+                  className="home-card-btn primary-scan"
+                  onClick={() => {
+                    setAutoStartCamera(true);
+                    setActiveView('scan');
+                  }}
+                >
+                  <div className="card-btn-icon">📷</div>
+                  <div className="card-btn-content">
+                    <h2>Escanear QR</h2>
+                    <p>Escanee el código QR e ingrese la información del bien</p>
+                  </div>
+                  <div className="card-btn-arrow">→</div>
+                </button>
+
+                {/* Button 2: Revisar Inventario */}
+                <button 
+                  type="button"
+                  className="home-card-btn secondary-inventory"
+                  onClick={() => setActiveView('inventory')}
+                >
+                  <div className="card-btn-icon">📋</div>
+                  <div className="card-btn-content">
+                    <h2>Revisar Inventario</h2>
+                    <p>Ver los bienes inventariados en este dispositivo</p>
+                    {userInventoriedCount > 0 && (
+                      <span className="home-count-badge">
+                        {userInventoriedCount} {userInventoriedCount === 1 ? 'bien registrado' : 'bienes registrados'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="card-btn-arrow">→</div>
+                </button>
+              </div>
+
+              <div className="home-footer-note">
+                🔒 Personal Autorizado · I.E. José Abelardo Quiñones
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Screen 2: Scan & Input Form */}
+      {activeView === 'scan' && (
+        <FichaPatrimonialScanner
+          items={items}
+          onSaveItem={handleSaveFromFicha}
+          showToast={showToast}
+          onLogout={handleLogout}
+          userDni={userDni}
+          onBackToHome={() => {
+            setAutoStartCamera(false);
+            setActiveView('home');
+          }}
+          autoStartCamera={autoStartCamera}
+        />
+      )}
+
+      {/* Screen 3: Review Inventory */}
+      {activeView === 'inventory' && (
+        <MyInventoriedView
+          items={items}
+          userDni={userDni}
+          onNavigateToScanner={() => {
+            setAutoStartCamera(true);
+            setActiveView('scan');
+          }}
+          showToast={showToast}
+          onDeleteItem={handleDeleteItem}
+          onClearAll={handleClearAllInventory}
+          onBackToHome={() => setActiveView('home')}
+        />
+      )}
     </div>
   );
 }

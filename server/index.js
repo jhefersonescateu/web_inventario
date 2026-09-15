@@ -21,24 +21,48 @@ let isMongoConnected = false;
 mongoose.connect(MONGO_URI)
   .then(async () => {
     isMongoConnected = true;
-    console.log('🍃 Conectado exitosamente a MongoDB Atlas (Base de Datos: inventario_quinones)');
-    await seedInitialInventoryIfEmpty();
+    console.log('🍃 Conectado exitosamente a MongoDB Atlas (Base de Datos Real: inventario_quinones)');
   })
   .catch((err) => {
     console.error('⚠️ Error al conectar con MongoDB Atlas:', err.message);
   });
 
-// MongoDB Schema for collection "inventario_quinones"
+// MongoDB Schema for collection "inventario_quinones" — Estructura Stockpile completa
 const inventarioQuinonesSchema = new mongoose.Schema({
-  code: { type: String, required: true, unique: true, index: true },
-  name: { type: String, required: true },
-  category: { type: String, default: 'Equipos Tecnológicos' },
-  educationalLevel: { type: String, default: 'Secundaria' },
-  location: { type: String, default: 'Aula de innovación · Pabellón B' },
-  responsible: { type: String, default: 'Coord. de TIC' },
-  status: { type: String, default: 'Bueno' },
-  specs: { type: mongoose.Schema.Types.Mixed, default: {} },
-  verified: { type: Boolean, default: true }
+  // ── Identificación ──────────────────────────────────────────────────────────
+  code:         { type: String, required: true, unique: true, index: true },
+  name:         { type: String, required: true },
+  category:     { type: String, default: 'Equipos Tecnológicos' },
+  // ── Ubicación y Cantidad ────────────────────────────────────────────────────
+  location:     { type: String, default: '' },
+  quantity:     { type: Number, default: 1 },
+  // ── Estado ──────────────────────────────────────────────────────────────────
+  status:       { type: String, default: 'Bueno' },
+  situacion:    { type: String, default: '' },
+  // ── Identificación del Producto ─────────────────────────────────────────────
+  brand:        { type: String, default: '' },
+  model:        { type: String, default: '' },
+  serialNumber: { type: String, default: '' },
+  // ── Dimensiones (cm) ────────────────────────────────────────────────────────
+  alto:         { type: Number, default: null },
+  ancho:        { type: Number, default: null },
+  largo:        { type: Number, default: null },
+  // ── Características físicas ──────────────────────────────────────────────────
+  tipoMaterial: { type: String, default: '' },
+  color:        { type: String, default: '' },
+  // ── Notas y detalles ────────────────────────────────────────────────────────
+  details:      { type: String, default: '' },   // Detalles / Especificaciones Adicionales (Paso 1)
+  notes:        { type: String, default: '' },   // Observaciones adicionales / Notas internas (Paso 2)
+  // ── Cuestionario dinámico (Paso 2) ──────────────────────────────────────────
+  customFields: { type: mongoose.Schema.Types.Mixed, default: {} },
+  // ── Campos de compatibilidad / legacy ───────────────────────────────────────
+  specs:        { type: mongoose.Schema.Types.Mixed, default: {} },
+  educationalLevel: { type: String, default: '' },
+  responsible:  { type: String, default: '' },
+  // ── Auditoría ────────────────────────────────────────────────────────────────
+  verified:     { type: Boolean, default: true },
+  scannedByDni: { type: String, default: '' },
+  scannedAt:    { type: String, default: '' },
 }, { 
   timestamps: true 
 });
@@ -46,88 +70,11 @@ const inventarioQuinonesSchema = new mongoose.Schema({
 // Model connected to collection "inventario_quinones"
 const InventarioQuinones = mongoose.model('InventarioQuinones', inventarioQuinonesSchema, 'inventario_quinones');
 
-// Seed default initial items if MongoDB collection is empty
-async function seedInitialInventoryIfEmpty() {
-  try {
-    const count = await InventarioQuinones.countDocuments();
-    if (count === 0) {
-      console.log('📦 Colección inventario_quinones vacía. Insertando bienes iniciales de muestra...');
-      await InventarioQuinones.insertMany([
-        {
-          code: 'QUI-2026-014',
-          name: 'Proyector multimedia',
-          category: 'Equipos Tecnológicos',
-          educationalLevel: 'Secundaria',
-          location: 'Aula de innovación · Pabellón B',
-          responsible: 'Coord. de TIC',
-          status: 'Bueno',
-          verified: true,
-          specs: {
-            brand: 'Epson',
-            model: 'PowerLite 118',
-            serialNumber: 'EP-981024-X',
-            peripherals: '3800 Lumens, HDMI/VGA, Incluye control y cable 10m'
-          }
-        },
-        {
-          code: 'QUI-TEC-001',
-          name: 'Laptop Educativa i5',
-          category: 'Equipos Tecnológicos',
-          educationalLevel: 'Secundaria',
-          location: 'Lab. de Cómputo',
-          responsible: 'Prof. de Innovación',
-          status: 'Bueno',
-          verified: true,
-          specs: {
-            brand: 'Lenovo',
-            model: 'V15 G3',
-            serialNumber: 'LNV-2026-901',
-            ramStorage: 'Intel Core i5, 16GB RAM, SSD 512GB'
-          }
-        },
-        {
-          code: 'QUI-MOB-001',
-          name: 'Mesa Bipersonal Escolar',
-          category: 'Mobiliario Escolar',
-          educationalLevel: 'Primaria',
-          location: 'Aula-05 · Pabellón A',
-          responsible: 'Tutor de Aula',
-          status: 'Bueno',
-          verified: true,
-          specs: {
-            material: 'Madera y Fierro',
-            color: 'Marrón Claro',
-            dimensions: '120x50 cm'
-          }
-        }
-      ]);
-      console.log('✅ Bienes iniciales creados exitosamente en MongoDB.');
-    }
-  } catch (e) {
-    console.error('Error al inicializar semillas:', e);
-  }
-}
-
-// In-memory fallback dataset if MongoDB is temporarily connecting
-let localFallbackInventory = [
-  {
-    id: 'QUI-2026-014',
-    code: 'QUI-2026-014',
-    name: 'Proyector multimedia',
-    category: 'Equipos Tecnológicos',
-    educationalLevel: 'Secundaria',
-    location: 'Aula de innovación · Pabellón B',
-    responsible: 'Coord. de TIC',
-    status: 'Bueno',
-    verified: true,
-    specs: { brand: 'Epson', model: 'PowerLite 118' }
-  }
-];
+// In-memory fallback dataset (starts empty for real inventory)
+let localFallbackInventory = [];
 
 // WebSocket server setup
 const wss = new WebSocketServer({ server });
-
-// Track connected desktop / client sockets
 const clients = new Set();
 
 wss.on('connection', (ws) => {
@@ -136,7 +83,7 @@ wss.on('connection', (ws) => {
 
   ws.send(JSON.stringify({ 
     type: 'CONNECTED', 
-    message: 'Conectado al servidor Stockpile + MongoDB Atlas',
+    message: 'Conectado al servidor Stockpile Real + MongoDB Atlas',
     mongoStatus: isMongoConnected ? 'connected' : 'connecting'
   }));
 
@@ -190,7 +137,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-// 2. Get Inventory Items from MongoDB
+// 2. Get Real Inventory Items from MongoDB Atlas
 app.get('/api/inventory', async (req, res) => {
   try {
     if (isMongoConnected) {
@@ -205,7 +152,7 @@ app.get('/api/inventory', async (req, res) => {
 });
 
 // 3. Register or Update Asset Item in MongoDB
-app.post('/api/inventory/save', async (req, res) => {
+const saveInventoryHandler = async (req, res) => {
   const itemData = req.body;
   if (!itemData || !itemData.code) {
     return res.status(400).json({ success: false, message: 'Falta código del bien' });
@@ -213,20 +160,34 @@ app.post('/api/inventory/save', async (req, res) => {
 
   try {
     if (isMongoConnected) {
-      // Upsert into MongoDB collection "inventario_quinones"
       const savedDoc = await InventarioQuinones.findOneAndUpdate(
         { code: itemData.code },
         { 
           $set: {
-            code: itemData.code,
-            name: itemData.name,
-            category: itemData.category || 'Equipos Tecnológicos',
-            educationalLevel: itemData.educationalLevel || 'Secundaria',
-            location: itemData.location || 'Aula de innovación · Pabellón B',
-            responsible: itemData.responsible || 'Coord. de TIC',
-            status: itemData.status || 'Bueno',
-            specs: itemData.specs || {},
-            verified: true
+            code:         itemData.code,
+            name:         itemData.name,
+            category:     itemData.category     || 'Equipos Tecnológicos',
+            location:     itemData.location     || '',
+            quantity:     itemData.quantity     || 1,
+            status:       itemData.status       || 'Bueno',
+            situacion:    itemData.situacion    || '',
+            brand:        itemData.brand        || '',
+            model:        itemData.model        || '',
+            serialNumber: itemData.serialNumber || '',
+            alto:         itemData.alto  != null ? itemData.alto  : null,
+            ancho:        itemData.ancho != null ? itemData.ancho : null,
+            largo:        itemData.largo != null ? itemData.largo : null,
+            tipoMaterial: itemData.tipoMaterial || '',
+            color:        itemData.color        || '',
+            details:      itemData.details      || '',
+            notes:        itemData.notes        || '',
+            customFields: itemData.customFields || {},
+            educationalLevel: itemData.educationalLevel || '',
+            responsible:      itemData.responsible      || '',
+            specs:            itemData.specs            || {},
+            verified:     true,
+            scannedByDni: itemData.scannedByDni || '',
+            scannedAt:    itemData.scannedAt    || new Date().toLocaleString()
           }
         },
         { upsert: true, returnDocument: 'after' }
@@ -236,7 +197,6 @@ app.post('/api/inventory/save', async (req, res) => {
       broadcastScanEvent({ action: 'SAVE', item: savedDoc });
       return res.json({ success: true, message: 'Bien patrimonial guardado en MongoDB Atlas', item: savedDoc });
     } else {
-      // Local fallback
       const existingIdx = localFallbackInventory.findIndex(i => i.code === itemData.code);
       if (existingIdx >= 0) {
         localFallbackInventory[existingIdx] = { ...localFallbackInventory[existingIdx], ...itemData };
@@ -250,19 +210,52 @@ app.post('/api/inventory/save', async (req, res) => {
     console.error('Error al guardar en MongoDB:', err);
     res.status(500).json({ success: false, error: err.message });
   }
+};
+
+app.post('/api/inventory',      saveInventoryHandler);
+app.post('/api/inventory/save', saveInventoryHandler);
+
+// 4. Delete Single Item Endpoint
+app.delete('/api/inventory/:code', async (req, res) => {
+  const { code } = req.params;
+  try {
+    if (isMongoConnected) {
+      await InventarioQuinones.deleteOne({ code });
+      console.log(`🗑️ Bien eliminado de MongoDB Atlas: ${code}`);
+    }
+    localFallbackInventory = localFallbackInventory.filter(i => i.code !== code && i.id !== code);
+    broadcastScanEvent({ action: 'DELETE', code });
+    res.json({ success: true, message: `Bien ${code} eliminado correctamente` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-// 4. Scan Event Endpoint (Called when QR code is scanned via camera or loaded)
+// 5. Clear All Items (Wipe test data)
+app.post('/api/inventory/clear-all', async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      await InventarioQuinones.deleteMany({});
+      console.log('🧹 Base de datos real en MongoDB Atlas vaciada completamente.');
+    }
+    localFallbackInventory = [];
+    broadcastScanEvent({ action: 'CLEAR_ALL' });
+    res.json({ success: true, message: 'Inventario vaciado por completo' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Scan Event Endpoint
 app.post('/api/scan', async (req, res) => {
-  const { code, name, category, educationalLevel, location, status, responsible, specs } = req.body;
+  const { code, name, category, educationalLevel, location, status, responsible, specs, scannedByDni, scannedAt } = req.body;
   
-  console.log(`📡 QR Escaneado desde el celular: ${code}`);
+  console.log(`📡 QR Escaneado desde el celular: ${code} (DNI: ${scannedByDni || 'Desconocido'})`);
 
   try {
-    let itemToBroadcast = { code, name, category, educationalLevel, location, status, responsible, specs };
+    let itemToBroadcast = { code, name, category, educationalLevel, location, status, responsible, specs, scannedByDni, scannedAt };
 
     if (isMongoConnected && code && name) {
-      // Save or update in MongoDB Atlas
       const doc = await InventarioQuinones.findOneAndUpdate(
         { code },
         { 
@@ -275,7 +268,9 @@ app.post('/api/scan', async (req, res) => {
             responsible: responsible || 'Personal de Inventario',
             status: status || 'Bueno',
             specs: specs || {},
-            verified: true
+            verified: true,
+            scannedByDni: scannedByDni || '',
+            scannedAt: scannedAt || new Date().toLocaleString()
           }
         },
         { upsert: true, returnDocument: 'after' }
@@ -284,7 +279,6 @@ app.post('/api/scan', async (req, res) => {
       console.log(`🍃 Escaneo registrado automáticamente en MongoDB (inventario_quinones): ${doc.code}`);
     }
 
-    // Retransmit scan event to Desktop App / WebSockets
     broadcastScanEvent({
       action: 'SCAN',
       item: itemToBroadcast
@@ -313,6 +307,6 @@ app.get('/api/health', (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Servidor Backend Stockpile corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor Backend Stockpile REAL corriendo en http://localhost:${PORT}`);
   console.log(`🔌 Servicio WebSocket activo en ws://localhost:${PORT}`);
 });
