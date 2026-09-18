@@ -306,7 +306,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 Servidor Backend Stockpile REAL corriendo en http://localhost:${PORT}`);
-  console.log(`🔌 Servicio WebSocket activo en ws://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor Backend Stockpile REAL corriendo en http://0.0.0.0:${PORT} (Puerto ${PORT})`);
+  console.log(`🔌 Servicio WebSocket activo en ws://0.0.0.0:${PORT}`);
 });

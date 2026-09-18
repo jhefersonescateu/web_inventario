@@ -265,9 +265,30 @@ export default function FichaPatrimonialScanner({
     setCustomFields({}); setNotes(''); setActiveTab(0);
   };
 
+  const parseQrCodeString = (rawText) => {
+    if (!rawText) return '';
+    let str = rawText.trim();
+    // If QR contains a URL like https://.../scan?code=QUI-2026-001 or ?code=
+    if (str.includes('?code=') || str.includes('&code=')) {
+      const match = str.match(/[?&]code=([^&]+)/i);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]).trim().toUpperCase();
+      }
+    }
+    // If QR is a URL ending with code parameter or path
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      try {
+        const u = new URL(str);
+        const c = u.searchParams.get('code');
+        if (c) return c.trim().toUpperCase();
+      } catch (e) {}
+    }
+    return str.toUpperCase();
+  };
+
   const handleLoadItemByCode = (codeToSearch) => {
     if (!codeToSearch) return;
-    const cleanCode = codeToSearch.trim().toUpperCase();
+    const cleanCode = parseQrCodeString(codeToSearch);
     const found = items.find(i => i.code.toLowerCase() === cleanCode.toLowerCase());
     resetForm();
     if (found) {
@@ -350,8 +371,10 @@ export default function FichaPatrimonialScanner({
 
   // ── Send to Server (estructura Stockpile) ─────────────────────────────────────
   const sendToServer = async (itemPayload) => {
+    const host = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
     const servers = [
-      'http://localhost:5001/api/inventory',
+      `http://${host}:3001/api/inventory/save`,
+      `http://${host}:3001/api/inventory`,
       'http://localhost:3001/api/inventory/save',
     ];
     for (const url of servers) {

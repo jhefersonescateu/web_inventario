@@ -301,11 +301,29 @@ export default function App() {
     return items.filter(item => item.scannedByDni === userDni || (!item.scannedByDni && item.operatorDni === userDni)).length;
   }, [items, userDni]);
 
+  // Dynamic Backend Host resolution (supports localhost, local network IP, and production)
+  const getBackendHost = () => {
+    return typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  };
+
+  // Auto-detect code parameter in URL (when opening page directly via QR scan e.g. ?code=QUI-2026-001)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const codeParam = params.get('code');
+      if (codeParam && codeParam.trim()) {
+        setActiveView('scan');
+        showToast(`📲 Escaneo detectado desde QR: ${codeParam.trim().toUpperCase()}`);
+      }
+    } catch (e) {}
+  }, []);
+
   // Fetch real inventory items from MongoDB Atlas backend API on load
   useEffect(() => {
     const fetchRealInventory = async () => {
+      const host = getBackendHost();
       try {
-        const res = await fetch('http://localhost:3001/api/inventory');
+        const res = await fetch(`http://${host}:3001/api/inventory`);
         const data = await res.json();
         if (data.success && Array.isArray(data.items)) {
           setItems(data.items);
@@ -321,8 +339,9 @@ export default function App() {
   // WebSocket connection to backend Node.js server for desktop synchronization
   useEffect(() => {
     let ws;
+    const host = getBackendHost();
     try {
-      ws = new WebSocket('ws://localhost:3001');
+      ws = new WebSocket(`ws://${host}:3001`);
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -357,6 +376,7 @@ export default function App() {
 
   // Save/Update Item to Real Inventory (MongoDB Atlas + LocalStorage)
   const handleSaveFromFicha = (savedItem) => {
+    const host = getBackendHost();
     setItems(prev => {
       const exists = prev.some(i => i.code === savedItem.code || i.id === savedItem.id);
       const nextState = exists
@@ -367,7 +387,7 @@ export default function App() {
     });
 
     // Send POST to MongoDB Atlas API server
-    fetch('http://localhost:3001/api/inventory/save', {
+    fetch(`http://${host}:3001/api/inventory/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(savedItem)
@@ -434,6 +454,7 @@ export default function App() {
 
   // Delete Real Item (MongoDB + LocalStorage)
   const handleDeleteItem = (id, name) => {
+    const host = getBackendHost();
     if (window.confirm(`¿Está seguro de eliminar el bien "${name}" del inventario real?`)) {
       setItems(prev => {
         const nextState = prev.filter(item => item.id !== id && item.code !== id);
@@ -442,7 +463,7 @@ export default function App() {
       });
 
       // Send DELETE to backend API
-      fetch(`http://localhost:3001/api/inventory/${encodeURIComponent(id)}`, {
+      fetch(`http://${host}:3001/api/inventory/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       }).catch(err => console.error('Error al borrar de backend:', err));
 
@@ -452,10 +473,11 @@ export default function App() {
 
   // Clear All Real Data
   const handleClearAllInventory = () => {
+    const host = getBackendHost();
     if (window.confirm('⚠️ ¿Desea vaciar TODO el inventario registrado y empezar desde cero?')) {
       setItems([]);
       localStorage.setItem('stockpile_real_inventory', JSON.stringify([]));
-      fetch('http://localhost:3001/api/inventory/clear-all', { method: 'POST' }).catch(() => {});
+      fetch(`http://${host}:3001/api/inventory/clear-all`, { method: 'POST' }).catch(() => {});
       showToast('🧹 Inventario vaciado por completo.');
     }
   };
