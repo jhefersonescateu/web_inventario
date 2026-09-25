@@ -176,6 +176,7 @@ function rowToItem(row) {
 async function obtenerResumenSesion(sesion) {
   const sesionId = sesion.id;
   const ambiente = sesion.ambiente;
+  const colegio  = sesion.colegio;
 
   const detallesRes = await db.execute({
     sql: 'SELECT * FROM inventario_detalles WHERE sesionId = ?',
@@ -183,9 +184,16 @@ async function obtenerResumenSesion(sesion) {
   });
   const detalles = detallesRes.rows;
 
+  let bienesSql = 'SELECT * FROM inventario_quinones WHERE LOWER(TRIM(location)) = LOWER(TRIM(?))';
+  const bienesArgs = [ambiente];
+  if (colegio) {
+    bienesSql += ' AND UPPER(colegio) = UPPER(?)';
+    bienesArgs.push(colegio.trim());
+  }
+
   const bienesRes = await db.execute({
-    sql: 'SELECT * FROM inventario_quinones WHERE LOWER(TRIM(location)) = LOWER(TRIM(?))',
-    args: [ambiente]
+    sql: bienesSql,
+    args: bienesArgs
   });
   const bienesDelAmbiente = bienesRes.rows;
 
@@ -586,16 +594,29 @@ app.post('/api/scan', async (req, res) => {
 // A. Ambientes registrados (para autocompletado)
 app.get('/api/ambientes', async (req, res) => {
   try {
+    const { colegio } = req.query;
+    let locSql = "SELECT DISTINCT location FROM inventario_quinones WHERE location IS NOT NULL AND location != ''";
+    let ambSql = "SELECT DISTINCT ambiente FROM inventario_sesiones WHERE ambiente IS NOT NULL AND ambiente != ''";
+    const locArgs = [];
+    const ambArgs = [];
+
+    if (colegio && colegio.trim()) {
+      locSql += " AND UPPER(colegio) = UPPER(?)";
+      ambSql += " AND UPPER(colegio) = UPPER(?)";
+      locArgs.push(colegio.trim());
+      ambArgs.push(colegio.trim());
+    }
+
     const [locResult, ambResult] = await Promise.all([
-      db.execute('SELECT DISTINCT location FROM inventario_quinones WHERE location IS NOT NULL AND location != \'\''),
-      db.execute('SELECT DISTINCT ambiente FROM inventario_sesiones WHERE ambiente IS NOT NULL AND ambiente != \'\'')
+      db.execute({ sql: locSql, args: locArgs }),
+      db.execute({ sql: ambSql, args: ambArgs })
     ]);
     const setAmbs = new Set([
       ...locResult.rows.map(r => r.location),
       ...ambResult.rows.map(r => r.ambiente)
     ]);
     const ambientes = Array.from(setAmbs).filter(a => a && a.trim()).map(a => a.trim()).sort();
-    return res.json({ success: true, ambientes });
+    return res.json({ success: true, ambientes, colegio: colegio || 'Todos' });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
