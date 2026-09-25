@@ -66,8 +66,13 @@ export default function App() {
     if (import.meta.env.VITE_BACKEND_URL) {
       return import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '');
     }
-    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-    return `http://${host}:3001`;
+    if (typeof window !== 'undefined' && window.location) {
+      if (window.location.port === '5173' || window.location.port === '3000') {
+        return `http://${window.location.hostname}:3001`;
+      }
+      return window.location.origin;
+    }
+    return '';
   };
 
   const getWsUrl = () => {

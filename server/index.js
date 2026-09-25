@@ -9,11 +9,16 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // ── CONFIGURACIÓN TURSO DB (9 GB GRATIS) ────────────────────────────────────
-const TURSO_URL   = process.env.TURSO_DATABASE_URL  || 'libsql://inventario-colegios-jhefersonescateu.aws-us-east-1.turso.io';
-const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN     || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAwMTkzMTAsImlkIjoiMDFhMGM1NzEtY2IwMS03YWZjLTg2ZWYtYjQ5YmJmYjRmMjhiIiwia2lkIjoiZ01tVHpYUEZLRXIxQm01bHFwaWhOQXVDYjRvNzNZaG5CM0VjWUVJcFc2cyIsInJpZCI6IjM2OWZkMTA4LTVmYzktNDA5Ny05ZWFmLWRjNzhiN2Q4NjdkNiJ9.BQ0TRrN6TIen-KAIBl9whWTtUf6GslEV6lfd2gH1LORnKi3Q4uaNWpauUCW1NDVQOeMt7QO9OVBQXibJhqJ1CA';
+let rawTursoUrl = process.env.TURSO_DATABASE_URL || 'https://inventario-colegios-jhefersonescateu.aws-us-east-1.turso.io';
+if (rawTursoUrl.startsWith('libsql://')) {
+  rawTursoUrl = rawTursoUrl.replace('libsql://', 'https://');
+}
+const TURSO_URL   = rawTursoUrl;
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAwMTkzMTAsImlkIjoiMDFhMGM1NzEtY2IwMS03YWZjLTg2ZWYtYjQ5YmJmYjRmMjhiIiwia2lkIjoiZ01tVHpYUEZLRXIxQm01bHFwaWhOQXVDYjRvNzNZaG5CM0VjWUVJcFc2cyIsInJpZCI6IjM2OWZkMTA4LTVmYzktNDA5Ny05ZWFmLWRjNzhiN2Q4NjdkNiJ9.BQ0TRrN6TIen-KAIBl9whWTtUf6GslEV6lfd2gH1LORnKi3Q4uaNWpauUCW1NDVQOeMt7QO9OVBQXibJhqJ1CA';
 
 const db = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 let isTursoConnected = false;
+let dbInitPromise = null;
 
 // ── INICIALIZAR TABLAS EN TURSO ──────────────────────────────────────────────
 async function initDatabase() {
@@ -133,11 +138,26 @@ async function initDatabase() {
   }
 }
 
-initDatabase();
+function ensureDbInitialized() {
+  if (!dbInitPromise) {
+    dbInitPromise = initDatabase();
+  }
+  return dbInitPromise;
+}
 
 // Enable CORS and JSON body parsing
 app.use(cors());
 app.use(express.json());
+
+// Middleware para garantizar que Turso DB y sus tablas estén listas antes de responder cualquier API
+app.use(async (req, res, next) => {
+  try {
+    await ensureDbInitialized();
+  } catch (e) {
+    console.error('Error awaiting DB init:', e);
+  }
+  next();
+});
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 function generateId() {
@@ -201,24 +221,32 @@ async function obtenerResumenSesion(sesion) {
 }
 
 // ── WEBSOCKET ─────────────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ server });
 const clients = new Set();
+let wss = null;
 
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  console.log('📱 Cliente conectado vía WebSocket');
+if (!process.env.VERCEL) {
+  try {
+    wss = new WebSocketServer({ server });
+    wss.on('connection', (ws) => {
+      clients.add(ws);
+      console.log('📱 Cliente conectado vía WebSocket');
 
-  ws.send(JSON.stringify({
-    type: 'CONNECTED',
-    message: 'Conectado al servidor Stockpile Real + Turso DB (5 GB Gratis)',
-    tursoStatus: isTursoConnected ? 'connected' : 'connecting'
-  }));
+      ws.send(JSON.stringify({
+        type: 'CONNECTED',
+        message: 'Conectado al servidor Stockpile Real + Turso DB (5 GB Gratis)',
+        tursoStatus: isTursoConnected ? 'connected' : 'connecting'
+      }));
 
-  ws.on('close', () => { clients.delete(ws); });
-  ws.on('error', (err) => { console.error('WebSocket Error:', err); });
-});
+      ws.on('close', () => { clients.delete(ws); });
+      ws.on('error', (err) => { console.error('WebSocket Error:', err); });
+    });
+  } catch (err) {
+    console.log('⚠️ WebSocket no inicializado en entorno serverless.');
+  }
+}
 
 function broadcastScanEvent(data) {
+  if (!clients.size) return;
   const payload = JSON.stringify({ type: 'QR_SCANNED', timestamp: new Date().toISOString(), ...data });
   clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
@@ -815,7 +843,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor Backend corriendo en http://0.0.0.0:${PORT}`);
-  console.log(`🔌 WebSocket activo en ws://0.0.0.0:${PORT}`);
-});
+// Exportar app para despliegue Vercel Serverless Functions
+export default app;
+
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor Backend corriendo en http://0.0.0.0:${PORT}`);
+    console.log(`🔌 WebSocket activo en ws://0.0.0.0:${PORT}`);
+  });
+}

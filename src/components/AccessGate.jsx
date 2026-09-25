@@ -4,8 +4,13 @@ const getApiBaseUrl = () => {
   if (import.meta.env.VITE_BACKEND_URL) {
     return import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '');
   }
-  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-  return `http://${host}:3001`;
+  if (typeof window !== 'undefined' && window.location) {
+    if (window.location.port === '5173' || window.location.port === '3000') {
+      return `http://${window.location.hostname}:3001`;
+    }
+    return window.location.origin;
+  }
+  return '';
 };
 
 export default function AccessGate({ onAuthenticated }) {
@@ -91,7 +96,15 @@ export default function AccessGate({ onAuthenticated }) {
         body: JSON.stringify({ email: adminEmail.trim(), password: adminPassword })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        console.error('Non-JSON response from admin-login:', res.status, text);
+        setAdminLoginError(`❌ Error de respuesta del servidor (${res.status}). Intente nuevamente.`);
+        return;
+      }
 
       if (data.success) {
         setIsAdminAuthenticated(true);
