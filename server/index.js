@@ -117,19 +117,6 @@ async function initDatabase() {
        VALUES ('admin@gmail.com', '990246774')`
     );
 
-    // Insertar código QUIÑONES inicial solo si la tabla administracion estuviera completamente vacía
-    const checkAdmin = await db.execute('SELECT COUNT(*) as count FROM administracion');
-    if (checkAdmin.rows[0] && Number(checkAdmin.rows[0].count) === 0) {
-      await db.execute(
-        `INSERT OR IGNORE INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion)
-         VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES', 'Área de Patrimonio', '', 'Sede Principal')`
-      );
-      await db.execute(
-        `INSERT OR IGNORE INTO codigos_acceso (codigo, institucion)
-         VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES')`
-      );
-    }
-
     isTursoConnected = true;
     console.log('🗄️  Conectado exitosamente a Turso DB (5 GB Gratis - SQLite en la Nube)');
     console.log('📋 Tablas: inventario_quinones | inventario_sesiones | inventario_detalles | acceso | administracion | codigos_acceso');
