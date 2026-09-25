@@ -78,11 +78,11 @@ export default function AccessGate({ onAuthenticated }) {
     setAdminLoginError('');
 
     if (!adminEmail.trim()) {
-      setAdminLoginError('⚠️ Ingrese su correo de administrador.');
+      setAdminLoginError('Ingrese su correo de administrador.');
       return;
     }
     if (!adminPassword) {
-      setAdminLoginError('⚠️ Ingrese su contraseña.');
+      setAdminLoginError('Ingrese su contraseña.');
       return;
     }
 
@@ -102,7 +102,7 @@ export default function AccessGate({ onAuthenticated }) {
         data = JSON.parse(text);
       } catch (parseErr) {
         console.error('Non-JSON response from admin-login:', res.status, text);
-        setAdminLoginError(`❌ Error de respuesta del servidor (${res.status}). Intente nuevamente.`);
+        setAdminLoginError(`Error de respuesta del servidor (${res.status}). Intente nuevamente.`);
         return;
       }
 
@@ -111,11 +111,11 @@ export default function AccessGate({ onAuthenticated }) {
         setAdminLoginError('');
         setAdminTab('list');
       } else {
-        setAdminLoginError(data.message || '❌ Credenciales de administrador incorrectas.');
+        setAdminLoginError(data.message || 'Credenciales de administrador incorrectas.');
       }
     } catch (err) {
       console.error('Error al conectar con el servidor de autenticación:', err);
-      setAdminLoginError('❌ Error de conexión al servidor. Intente nuevamente.');
+      setAdminLoginError('Error de conexión al servidor. Intente nuevamente.');
     } finally {
       setAdminLoginLoading(false);
     }
@@ -137,7 +137,7 @@ export default function AccessGate({ onAuthenticated }) {
   const handleConfirmSecurityAction = async (e) => {
     e.preventDefault();
     if (!securityModal.password) {
-      setSecurityModal(prev => ({ ...prev, error: '⚠️ Ingrese su contraseña de administrador.' }));
+      setSecurityModal(prev => ({ ...prev, error: 'Ingrese su contraseña de administrador.' }));
       return;
     }
 
@@ -153,7 +153,7 @@ export default function AccessGate({ onAuthenticated }) {
       const data = await res.json();
 
       if (!data.success) {
-        setSecurityModal(prev => ({ ...prev, error: '❌ Contraseña de administrador incorrecta.', loading: false }));
+        setSecurityModal(prev => ({ ...prev, error: 'Contraseña de administrador incorrecta.', loading: false }));
         return;
       }
 
@@ -170,7 +170,7 @@ export default function AccessGate({ onAuthenticated }) {
         executeDeleteCode(item.id, item.codigo);
       }
     } catch (err) {
-      setSecurityModal(prev => ({ ...prev, error: '❌ Error de conexión al validar contraseña.', loading: false }));
+      setSecurityModal(prev => ({ ...prev, error: 'Error de conexión al validar contraseña.', loading: false }));
     }
   };
 
@@ -179,7 +179,7 @@ export default function AccessGate({ onAuthenticated }) {
     e.preventDefault();
     setAdminMsg('');
     if (!newCodigo.trim()) {
-      setAdminMsg('⚠️ Ingrese el código.');
+      setAdminMsg('Ingrese el código.');
       return;
     }
     setAdminLoading(true);
@@ -203,15 +203,15 @@ export default function AccessGate({ onAuthenticated }) {
       });
       const data = await res.json();
       if (data.success) {
-        setAdminMsg('✅ ' + data.message);
+        setAdminMsg(data.message);
         handleCancelEdit();
         fetchAdminCodes();
         setAdminTab('list');
       } else {
-        setAdminMsg('❌ ' + (data.message || 'Error al guardar datos.'));
+        setAdminMsg(data.message || 'Error al guardar datos.');
       }
     } catch (err) {
-      setAdminMsg('❌ Error de conexión al guardar.');
+      setAdminMsg('Error de conexión al guardar.');
     } finally {
       setAdminLoading(false);
     }
@@ -224,7 +224,7 @@ export default function AccessGate({ onAuthenticated }) {
     setNewEncargadoNombre(item.encargado_nombre || '');
     setNewEncargadoTelefono(item.encargado_telefono || '');
     setNewDireccion(item.direccion || '');
-    setAdminMsg(`✏️ Editando datos de "${item.codigo}"`);
+    setAdminMsg(`Editando datos de "${item.codigo}"`);
   };
 
   const handleCancelEdit = () => {
@@ -243,13 +243,13 @@ export default function AccessGate({ onAuthenticated }) {
       const res = await fetch(`${apiUrl}/api/administracion/${id}/toggle`, { method: 'PATCH' });
       const data = await res.json();
       if (data.success) {
-        setAdminMsg(`🔄 Código "${codigo}" ${data.activo === 1 ? 'ACTIVADO' : 'DESACTIVADO'} correctamente.`);
+        setAdminMsg(`Código "${codigo}" ${data.activo === 1 ? 'ACTIVADO' : 'DESACTIVADO'} correctamente.`);
         fetchAdminCodes();
       } else {
-        setAdminMsg(`❌ ${data.message || 'Error al cambiar estado.'}`);
+        setAdminMsg(data.message || 'Error al cambiar estado.');
       }
     } catch (err) {
-      setAdminMsg('❌ Error al cambiar estado del código.');
+      setAdminMsg('Error al cambiar estado del código.');
     }
   };
 
@@ -260,13 +260,13 @@ export default function AccessGate({ onAuthenticated }) {
       const res = await fetch(`${apiUrl}/api/administracion/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setAdminMsg(`🗑️ Código "${codigo}" eliminado correctamente.`);
+        setAdminMsg(`Código "${codigo}" eliminado correctamente.`);
         fetchAdminCodes();
       } else {
-        setAdminMsg(`❌ ${data.message || 'Error al eliminar.'}`);
+        setAdminMsg(data.message || 'Error al eliminar.');
       }
     } catch (err) {
-      setAdminMsg('❌ Error al conectar para eliminar.');
+      setAdminMsg('Error al conectar para eliminar.');
     }
   };
 
@@ -279,7 +279,7 @@ export default function AccessGate({ onAuthenticated }) {
       return;
     }
     if (!dni.trim()) {
-      setErrorMsg('⚠️ Ingrese su número de DNI para identificar quién está ingresando.');
+      setErrorMsg('Ingrese su número de DNI para identificar quién está ingresando.');
       return;
     }
 
@@ -296,7 +296,7 @@ export default function AccessGate({ onAuthenticated }) {
       const data = await res.json();
 
       if (!data.success) {
-        setErrorMsg(data.message || '❌ Código incorrecto o inactivo. Acceso denegado.');
+        setErrorMsg(data.message || 'Código incorrecto o inactivo. Acceso denegado.');
         setIsLoading(false);
         return;
       }
@@ -316,7 +316,7 @@ export default function AccessGate({ onAuthenticated }) {
       });
     } catch (err) {
       console.error('Error al verificar acceso:', err);
-      setErrorMsg('❌ Error de conexión al servidor. Verifique que el servidor esté en línea.');
+      setErrorMsg('Error de conexión al servidor. Verifique que el servidor esté en línea.');
     } finally {
       setIsLoading(false);
     }
@@ -351,7 +351,7 @@ export default function AccessGate({ onAuthenticated }) {
           <form onSubmit={handleSubmit} className="access-form">
             <div className="access-field-group">
               <label htmlFor="access-code-input" className="access-label">
-                🔑 Código de Inventariado Requerido
+                Código de Inventariado Requerido:
               </label>
 
               <div className="access-input-wrapper">
@@ -370,7 +370,7 @@ export default function AccessGate({ onAuthenticated }) {
 
             <div className="access-field-group" style={{ marginTop: '12px' }}>
               <label htmlFor="access-dni-input" className="access-label">
-                🆔 DNI del Personal / Inventariador
+                DNI del Personal / Inventariador:
               </label>
 
               <div className="access-input-wrapper">
@@ -403,20 +403,20 @@ export default function AccessGate({ onAuthenticated }) {
               onClick={() => setShowAdminPanel(true)}
               style={{ marginTop: '10px' }}
             >
-              ⚙️ Panel Administrativo / Usuarios
+              Panel Administrativo / Usuarios
             </button>
           </form>
         ) : !isAdminAuthenticated ? (
           /* FORMULARIO DE INGRESO ADMINISTRADOR */
           <div className="admin-login-container" style={{ textAlign: 'left' }}>
             <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: '800', color: '#0f172a' }}>🔐 Acceso Administrador</h3>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: '800', color: '#0f172a' }}>Acceso Administrador</h3>
               <p style={{ fontSize: '0.82rem', color: '#64748b' }}>Ingrese sus credenciales de administrador</p>
             </div>
 
             <form onSubmit={handleAdminLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="access-label">📧 Correo de Administrador:</label>
+                <label className="access-label">Correo de Administrador:</label>
                 <input
                   type="email"
                   className="access-input"
@@ -429,7 +429,7 @@ export default function AccessGate({ onAuthenticated }) {
               </div>
 
               <div>
-                <label className="access-label">🔒 Contraseña:</label>
+                <label className="access-label">Contraseña:</label>
                 <input
                   type="password"
                   className="access-input"
@@ -469,7 +469,7 @@ export default function AccessGate({ onAuthenticated }) {
           /* PANEL DE GESTIÓN CON PESTAÑAS SEPARADAS */
           <div className="admin-panel-container" style={{ textAlign: 'left' }}>
             <div style={{ textAlign: 'center', marginBottom: '12px' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>⚙️ Panel Administrativo</h3>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>Panel Administrativo</h3>
               <p style={{ fontSize: '0.78rem', color: '#64748b' }}>Gestión de accesos e instituciones autorizadas</p>
             </div>
 
@@ -490,7 +490,7 @@ export default function AccessGate({ onAuthenticated }) {
                   color: adminTab === 'list' ? '#1d4ed8' : '#64748b'
                 }}
               >
-                🏫 Ver Instituciones ({adminCodes.length})
+                Ver Instituciones ({adminCodes.length})
               </button>
 
               <button
@@ -508,7 +508,7 @@ export default function AccessGate({ onAuthenticated }) {
                   color: adminTab === 'create' ? '#0f766e' : '#64748b'
                 }}
               >
-                ➕ Agregar Institución
+                + Agregar Institución
               </button>
             </div>
 
@@ -518,9 +518,9 @@ export default function AccessGate({ onAuthenticated }) {
                 style={{
                   marginBottom: '12px',
                   fontSize: '0.82rem',
-                  background: adminMsg.includes('✅') || adminMsg.includes('🗑️') || adminMsg.includes('🔄') ? '#f0fdf4' : '#fef2f2',
-                  borderColor: adminMsg.includes('✅') || adminMsg.includes('🗑️') || adminMsg.includes('🔄') ? '#bbf7d0' : '#fecaca',
-                  color: adminMsg.includes('✅') || adminMsg.includes('🗑️') || adminMsg.includes('🔄') ? '#166534' : '#991b1b'
+                  background: !adminMsg.toLowerCase().includes('error') ? '#f0fdf4' : '#fef2f2',
+                  borderColor: !adminMsg.toLowerCase().includes('error') ? '#bbf7d0' : '#fecaca',
+                  color: !adminMsg.toLowerCase().includes('error') ? '#166534' : '#991b1b'
                 }}
               >
                 {adminMsg}
@@ -531,7 +531,7 @@ export default function AccessGate({ onAuthenticated }) {
             {securityModal.open && (
               <div style={{ padding: '14px', background: '#fffbe0', border: '2px solid #fde68a', borderRadius: '14px', marginBottom: '14px' }}>
                 <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#92400e', marginBottom: '4px' }}>
-                  🔐 Confirmación de Seguridad Requerida
+                  Confirmación de Seguridad Requerida
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#78350f', marginBottom: '10px' }}>
                   Para <strong>{securityModal.type === 'delete' ? 'eliminar' : securityModal.type === 'edit' ? 'editar' : 'activar/desactivar'}</strong> el código "{securityModal.item?.codigo}", ingrese su contraseña de administrador:
@@ -579,7 +579,7 @@ export default function AccessGate({ onAuthenticated }) {
             {adminTab === 'list' && (
               <div>
                 <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                  Instituciones Registradas en Turso DB ({adminCodes.length}):
+                  Instituciones Registradas ({adminCodes.length}):
                 </div>
 
                 <div style={{ maxHeight: '230px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -594,9 +594,9 @@ export default function AccessGate({ onAuthenticated }) {
                         <div key={item.id || item.codigo} style={{ padding: '10px 12px', background: isActivo ? '#f8fafc' : '#fff5f5', borderRadius: '10px', border: `1px solid ${isActivo ? '#e2e8f0' : '#fecaca'}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <strong style={{ color: '#1e293b', fontSize: '0.92rem' }}>🔑 {item.codigo}</strong>
+                              <strong style={{ color: '#1e293b', fontSize: '0.92rem' }}>{item.codigo}</strong>
                               <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '10px', background: isActivo ? '#dcfce7' : '#fee2e2', color: isActivo ? '#166534' : '#991b1b', fontWeight: '700' }}>
-                                {isActivo ? '🟢 Activo' : '🔴 Inactivo'}
+                                {isActivo ? 'Activo' : 'Inactivo'}
                               </span>
                             </div>
                             
@@ -605,38 +605,38 @@ export default function AccessGate({ onAuthenticated }) {
                                 type="button"
                                 onClick={() => requestSecurityPassword('toggle', item)}
                                 style={{ background: isActivo ? '#fef3c7' : '#dcfce7', color: isActivo ? '#92400e' : '#166534', border: '1px solid #fde68a', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}
-                                title={isActivo ? 'Desactivar acceso (Requiere Clave Admin)' : 'Activar acceso (Requiere Clave Admin)'}
+                                title={isActivo ? 'Desactivar acceso' : 'Activar acceso'}
                               >
-                                {isActivo ? '⏸️ Desactivar' : '▶️ Activar'}
+                                {isActivo ? 'Desactivar' : 'Activar'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => requestSecurityPassword('edit', item)}
                                 style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}
-                                title="Editar datos (Requiere Clave Admin)"
+                                title="Editar datos"
                               >
-                                ✏️ Editar
+                                Editar
                               </button>
                               <button
                                 type="button"
                                 onClick={() => requestSecurityPassword('delete', item)}
                                 style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}
-                                title="Eliminar de Turso DB (Requiere Clave Admin)"
+                                title="Eliminar de Turso DB"
                               >
-                                🗑️ Borrar
+                                Eliminar
                               </button>
                             </div>
                           </div>
 
-                          <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: '600' }}>🏫 {item.institucion}</div>
+                          <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: '600' }}>{item.institucion}</div>
                           {item.encargado_nombre && (
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>👤 Encargado: {item.encargado_nombre}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Encargado: {item.encargado_nombre}</div>
                           )}
                           {item.encargado_telefono && (
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>📞 Tel: {item.encargado_telefono}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Teléfono: {item.encargado_telefono}</div>
                           )}
                           {item.direccion && (
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>📍 Dir: {item.direccion}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Dirección: {item.direccion}</div>
                           )}
                         </div>
                       );
@@ -651,17 +651,17 @@ export default function AccessGate({ onAuthenticated }) {
               <form onSubmit={handleAddCode} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label className="access-label" style={{ fontSize: '0.82rem', color: '#0f172a' }}>
-                    {editingId ? `✏️ Modificando Código (ID: ${editingId})` : '➕ Registrar Nueva Institución'}
+                    {editingId ? `Modificando Código (ID: ${editingId})` : 'Registrar Nueva Institución'}
                   </label>
                   {editingId && (
                     <button type="button" onClick={handleCancelEdit} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' }}>
-                      ❌ Cancelar edición
+                      Cancelar edición
                     </button>
                   )}
                 </div>
 
                 <div>
-                  <label className="access-label" style={{ fontSize: '0.75rem' }}>🔑 Código de Ingreso (*):</label>
+                  <label className="access-label" style={{ fontSize: '0.75rem' }}>Código de Ingreso (*):</label>
                   <input
                     type="text"
                     className="access-input"
@@ -674,7 +674,7 @@ export default function AccessGate({ onAuthenticated }) {
                 </div>
 
                 <div>
-                  <label className="access-label" style={{ fontSize: '0.75rem' }}>🏫 Nombre de la Institución:</label>
+                  <label className="access-label" style={{ fontSize: '0.75rem' }}>Nombre de la Institución:</label>
                   <input
                     type="text"
                     className="access-input"
@@ -686,7 +686,7 @@ export default function AccessGate({ onAuthenticated }) {
                 </div>
 
                 <div>
-                  <label className="access-label" style={{ fontSize: '0.75rem' }}>👤 Encargado de Inventario:</label>
+                  <label className="access-label" style={{ fontSize: '0.75rem' }}>Encargado de Inventario:</label>
                   <input
                     type="text"
                     className="access-input"
@@ -699,7 +699,7 @@ export default function AccessGate({ onAuthenticated }) {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <div>
-                    <label className="access-label" style={{ fontSize: '0.75rem' }}>📞 Teléfono:</label>
+                    <label className="access-label" style={{ fontSize: '0.75rem' }}>Teléfono:</label>
                     <input
                       type="text"
                       className="access-input"
@@ -710,7 +710,7 @@ export default function AccessGate({ onAuthenticated }) {
                     />
                   </div>
                   <div>
-                    <label className="access-label" style={{ fontSize: '0.75rem' }}>📍 Dirección:</label>
+                    <label className="access-label" style={{ fontSize: '0.75rem' }}>Dirección:</label>
                     <input
                       type="text"
                       className="access-input"
@@ -728,7 +728,7 @@ export default function AccessGate({ onAuthenticated }) {
                   style={{ fontSize: '0.88rem', padding: '10px', borderRadius: '10px', background: editingId ? '#2563eb' : '#0d9488', marginTop: '4px' }}
                   disabled={adminLoading}
                 >
-                  {adminLoading ? 'Guardando...' : editingId ? '💾 Actualizar Información' : '+ Guardar Nueva Institución'}
+                  {adminLoading ? 'Guardando...' : editingId ? 'Actualizar Información' : 'Guardar Nueva Institución'}
                 </button>
               </form>
             )}
@@ -745,7 +745,7 @@ export default function AccessGate({ onAuthenticated }) {
         )}
 
         <div className="access-footer-note">
-          🔒 Acceso restringido al personal autorizado del área de patrimonio
+          Acceso restringido al personal autorizado del área de patrimonio
         </div>
       </div>
     </div>
