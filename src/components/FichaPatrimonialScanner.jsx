@@ -289,32 +289,9 @@ export default function FichaPatrimonialScanner({
   const handleLoadItemByCode = (codeToSearch) => {
     if (!codeToSearch) return;
     const cleanCode = parseQrCodeString(codeToSearch);
-    const found = items.find(i => i.code.toLowerCase() === cleanCode.toLowerCase());
     resetForm();
-    if (found) {
-      setCurrentCode(found.code);
-      setName(found.name || '');
-      setCategory(found.category || 'Equipos Tecnológicos');
-      setLocation(found.location || '');
-      setStatus(found.status || 'Bueno');
-      if (found.quantity)     setQuantity(found.quantity);
-      if (found.brand)        setBrand(found.brand);
-      if (found.model)        setModel(found.model);
-      if (found.serialNumber) setSerialNumber(found.serialNumber);
-      if (found.alto)         setAlto(found.alto);
-      if (found.ancho)        setAncho(found.ancho);
-      if (found.largo)        setLargo(found.largo);
-      if (found.tipoMaterial) setTipoMaterial(found.tipoMaterial);
-      if (found.color)        setColor(found.color);
-      if (found.situacion)    setSituacion(found.situacion);
-      if (found.details)      setDetails(found.details);
-      if (found.customFields) setCustomFields(found.customFields);
-      if (found.notes)        setNotes(found.notes);
-      if (showToast) showToast(`🔍 Bien encontrado: ${found.code} — ${found.name}`);
-    } else {
-      setCurrentCode(cleanCode);
-      if (showToast) showToast(`✨ Código asignado: ${cleanCode}. Complete la información.`);
-    }
+    setCurrentCode(cleanCode);
+    if (showToast) showToast(`✨ Código asignado: ${cleanCode}. Complete la información.`);
     setHasScannedCode(true);
   };
 
@@ -371,11 +348,12 @@ export default function FichaPatrimonialScanner({
 
   // ── Send to Server (estructura Stockpile) ─────────────────────────────────────
   const sendToServer = async (itemPayload) => {
-    const host = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
+    const backendBase = import.meta.env.VITE_BACKEND_URL
+      ? import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '')
+      : `http://${typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost'}:3001`;
     const servers = [
-      `http://${host}:3001/api/inventory/save`,
-      `http://${host}:3001/api/inventory`,
-      'http://localhost:3001/api/inventory/save',
+      `${backendBase}/api/inventory/save`,
+      `${backendBase}/api/inventory`,
     ];
     for (const url of servers) {
       try {
@@ -465,22 +443,12 @@ export default function FichaPatrimonialScanner({
               <div className="scan-prompt-card">
                 <div className="scan-icon-pulse">📷</div>
                 <h2>Escaneo de QR Requerido</h2>
-                <p>Para desbloquear la ficha e ingresar la información de un bien, escanee primero su código QR o ingréselo manualmente.</p>
+                <p>Para desbloquear la ficha e ingresar la información de un bien, escanee su código QR con la cámara.</p>
                 <button type="button" className="btn-scan-camera-large" onClick={startCameraScanner}>
                   <span className="scan-icon">📷</span>
                   <span>{isScanning ? 'Escanear Código QR con Cámara...' : 'Abrir Cámara y Escanear QR'}</span>
                 </button>
               </div>
-              <div className="manual-scan-divider"><span>O SI EL BIEN NO TIENE CÓDIGO QR</span></div>
-              <button type="button" className="btn-manual-entry-large" onClick={() => {
-                setManualCodeInput(generateUniqueManualCode()); setIsManualModalOpen(true);
-              }}>
-                <span className="btn-icon">⌨️</span>
-                <span className="btn-text">
-                  <strong>Ingresar de forma manual (Sin QR)</strong>
-                  <small>Inventariar bienes o mobiliario sin etiqueta física</small>
-                </span>
-              </button>
               <div className="ficha-tester-bar" style={{marginTop:'24px'}}>
                 <span className="tester-label">Probar códigos de ejemplo:</span>
                 <div className="tester-chips">

@@ -3,249 +3,11 @@ import QRManagerModule from './components/QRManagerModule';
 import AccessGate from './components/AccessGate';
 import FichaPatrimonialScanner from './components/FichaPatrimonialScanner';
 import MyInventoriedView from './components/MyInventoriedView';
+import TomaInventarioSesion from './components/TomaInventarioSesion';
 
 
-// Sample School Inventory Data - I.E. José Abelardo Quiñones
-const initialSchoolInventory = [
-  {
-    id: 'QUI-MOB-001',
-    code: 'QUI-MOB-001',
-    location: 'Aula-05',
-    category: 'Mobiliario Escolar',
-    name: 'Mesa Bipersonal Escolar',
-    brand: 'MINEDU Standard',
-    model: 'Estándar Secundario',
-    serialNumber: 'N/A',
-    details: 'Color Marrón Claro, madera prensada y estructura metálica (120x50cm)',
-    quantity: 18,
-    status: 'Bueno',
-    notes: 'Lote 2024 asignado para estudiantes de 5to año'
-  },
-  {
-    id: 'QUI-MOB-002',
-    code: 'QUI-MOB-002',
-    location: 'Aula-05',
-    category: 'Mobiliario Escolar',
-    name: 'Silla Pedagógica Estudiantil',
-    brand: 'MINEDU',
-    model: 'Reforzada 2024',
-    serialNumber: 'N/A',
-    details: 'Color Azul institucional, estructura tubular en fierro gris',
-    quantity: 35,
-    status: 'Bueno',
-    notes: 'En óptimo estado de conservación'
-  },
-  {
-    id: 'QUI-MOB-003',
-    code: 'QUI-MOB-003',
-    location: 'Aula-05',
-    category: 'Mobiliario Escolar',
-    name: 'Pizarra Acrílica Blanca',
-    brand: 'Alumart',
-    model: 'Mural 2.40x1.20m',
-    serialNumber: 'N/A',
-    details: 'Fondo blanco magnético, marco de aluminio anodizado con portalápices',
-    quantity: 1,
-    status: 'Bueno',
-    notes: 'Instalada en pared frontal principal'
-  },
-  {
-    id: 'QUI-TEC-001',
-    code: 'QUI-TEC-001',
-    location: 'Aula-05',
-    category: 'Equipos Tecnológicos',
-    name: 'Proyector Multimedia HD',
-    brand: 'Epson',
-    model: 'PowerLite 118',
-    serialNumber: 'EP-981024-X',
-    details: '3800 Lumens, HDMI/VGA, Altavoz integrado 16W, Control remoto',
-    quantity: 1,
-    status: 'Bueno',
-    notes: 'Soporte fijado al techo. Incluye cable HDMI de 10 metros'
-  },
-  {
-    id: 'QUI-TEC-002',
-    code: 'QUI-TEC-002',
-    location: 'Aula-05',
-    category: 'Equipos Tecnológicos',
-    name: 'Ecran Enrollable Mural 120"',
-    brand: 'Klass',
-    model: 'Manual Matte White',
-    serialNumber: 'N/A',
-    details: 'Formato 16:9, mecanismo de retracción asistida, bordes negros',
-    quantity: 1,
-    status: 'Bueno',
-    notes: 'Instalado sobre la pizarra acrílica'
-  },
-  {
-    id: 'QUI-CLI-001',
-    code: 'QUI-CLI-001',
-    location: 'Aula-05',
-    category: 'Climatización y Audio',
-    name: 'Ventilador de Techo Industrial',
-    brand: 'National',
-    model: 'HeavyDuty 56"',
-    serialNumber: 'N/A',
-    details: 'Color Blanco, 3 aspas de aluminio, selector de 5 velocidades',
-    quantity: 2,
-    status: 'Bueno',
-    notes: 'Operativos con control de pared'
-  },
-  {
-    id: 'QUI-MOB-004',
-    code: 'QUI-MOB-004',
-    location: 'Aula-05',
-    category: 'Mobiliario Escolar',
-    name: 'Escritorio Docente con Cajones',
-    brand: 'Muebles Perú',
-    model: 'Ejecutivo 1.20m',
-    serialNumber: 'N/A',
-    details: 'Melamina color Cedro, 2 cajones con cerradura y chapa',
-    quantity: 1,
-    status: 'Regular',
-    notes: 'Presenta un raspón leve en el borde superior izquierdo'
-  },
-  {
-    id: 'QUI-TEC-003',
-    code: 'QUI-TEC-003',
-    location: 'Lab. de Cómputo',
-    category: 'Equipos Tecnológicos',
-    name: 'Laptop Educativa para Alumnos',
-    brand: 'Lenovo',
-    model: 'V15 G3 IAP',
-    serialNumber: 'LNV-2026-901',
-    details: 'Intel Core i5 12va gen, 16GB RAM, SSD 512GB, Pantalla 15.6" FHD',
-    quantity: 25,
-    status: 'Bueno',
-    notes: 'Cargadores etiquetados y guardados en gabinete blindado'
-  },
-  {
-    id: 'QUI-TEC-004',
-    code: 'QUI-TEC-004',
-    location: 'Lab. de Cómputo',
-    category: 'Equipos Tecnológicos',
-    name: 'Router Wi-Fi 6 Institucional',
-    brand: 'TP-Link',
-    model: 'Archer AX55',
-    serialNumber: 'TPL-8891002',
-    details: 'Dual-band 3000Mbps, 4 antenas externas, puerto Gigabit',
-    quantity: 2,
-    status: 'Bueno',
-    notes: 'Conectado al rack de red principal'
-  },
-  {
-    id: 'QUI-TEC-005',
-    code: 'QUI-TEC-005',
-    location: 'Dirección',
-    category: 'Equipos Tecnológicos',
-    name: 'Computadora All-In-One (AIO)',
-    brand: 'HP',
-    model: 'ProOne 440 G9',
-    serialNumber: 'HP-8CG2190XY',
-    details: 'Intel Core i7, 16GB RAM, SSD 512GB, Pantalla táctil 23.8"',
-    quantity: 2,
-    status: 'Bueno',
-    notes: 'Para gestión administrativa y emisión de certificados'
-  },
-  {
-    id: 'QUI-TEC-006',
-    code: 'QUI-TEC-006',
-    location: 'Sala de Profesores',
-    category: 'Equipos Tecnológicos',
-    name: 'Impresora Multifuncional EcoTank',
-    brand: 'Epson',
-    model: 'L6270',
-    serialNumber: 'EPS-V981244',
-    details: 'Sistema continuo de tinta, escáner ADF, conectividad Wi-Fi',
-    quantity: 1,
-    status: 'Regular',
-    notes: 'Requiere mantenimiento y limpieza de inyectores de tinta'
-  },
-  {
-    id: 'QUI-MOB-005',
-    code: 'QUI-MOB-005',
-    location: 'Biblioteca',
-    category: 'Mobiliario Escolar',
-    name: 'Estante Metálico de 5 Niveles',
-    brand: 'MetalServ',
-    model: 'Industrial 2.00x1.00m',
-    serialNumber: 'N/A',
-    details: 'Acero galvanizado color Gris, capacidad 120kg por balda',
-    quantity: 8,
-    status: 'Bueno',
-    notes: 'Almacena la colección de textos escolares y enciclopedias'
-  },
-  {
-    id: 'QUI-LAB-001',
-    code: 'QUI-LAB-001',
-    location: 'Lab. de Ciencias',
-    category: 'Material Didáctico',
-    name: 'Microscopio Binocular Biológico',
-    brand: 'Celestron',
-    model: 'Labs CB2000CF',
-    serialNumber: 'CEL-882109',
-    details: 'Aumento hasta 2000x, iluminación LED, 4 objetivos acromáticos',
-    quantity: 6,
-    status: 'Bueno',
-    notes: 'Con estuches rígidos antipolvo'
-  },
-  {
-    id: 'QUI-LAB-002',
-    code: 'QUI-LAB-002',
-    location: 'Lab. de Ciencias',
-    category: 'Material Didáctico',
-    name: 'Esqueleto Humano Articulado',
-    brand: '3B Scientific',
-    model: 'A10 Standard 170cm',
-    serialNumber: '3B-99120',
-    details: 'Material de resina lavable, extremidades desmontables, base con ruedas',
-    quantity: 1,
-    status: 'Bueno',
-    notes: 'Uso en clases de Biología y Ciencias Naturales'
-  },
-  {
-    id: 'QUI-DEP-001',
-    code: 'QUI-DEP-001',
-    location: 'Almacén Deportivo',
-    category: 'Artículos Deportivos',
-    name: 'Kit de Balones Oficiales',
-    brand: 'Walon / Molten',
-    model: 'Edición Escolar',
-    serialNumber: 'N/A',
-    details: '10 Balones Molten Básquet N°7, 12 Balones Walon Fútbol N°5',
-    quantity: 22,
-    status: 'Bueno',
-    notes: 'Guardados en redes de nylon reforzado'
-  },
-  {
-    id: 'QUI-AUD-001',
-    code: 'QUI-AUD-001',
-    location: 'Patio Principal',
-    category: 'Climatización y Audio',
-    name: 'Sistema de Perifoneo / Parlante Activo',
-    brand: 'Behringer',
-    model: 'PK110A 350W',
-    serialNumber: 'BEH-992180',
-    details: 'Parlante de 10 pulgadas, 350W RMS, conectividad Bluetooth, incluye trípode',
-    quantity: 2,
-    status: 'Bueno',
-    notes: 'Para formaciones, ceremonias y actuaciones escolares'
-  },
-  {
-    id: 'QUI-MOB-006',
-    code: 'QUI-MOB-006',
-    location: 'Aula-01',
-    category: 'Mobiliario Escolar',
-    name: 'Mesa Hexagonal de Trabajo Grupal',
-    brand: 'MINEDU',
-    model: 'Primaria / Inicial',
-    serialNumber: 'N/A',
-    details: 'Color Amarillo/Azul, bordes redondeados antichoque',
-    quantity: 6,
-    status: 'Malo',
-    notes: '2 mesas presentan patas inestables con soldadura rota'
-  }
-];
+// Clean production inventory initial state
+const initialSchoolInventory = [];
 
 const categoriesList = [
   'Todas las Categorías',
@@ -257,17 +19,7 @@ const categoriesList = [
 ];
 
 const defaultLocations = [
-  'Todas las Ubicaciones',
-  'Aula-05',
-  'Aula-01',
-  'Aula-02',
-  'Lab. de Cómputo',
-  'Biblioteca',
-  'Lab. de Ciencias',
-  'Dirección',
-  'Sala de Profesores',
-  'Patio Principal',
-  'Almacén Deportivo'
+  'Todas las Ubicaciones'
 ];
 
 export default function App() {
@@ -283,13 +35,21 @@ export default function App() {
 
   const [locations, setLocations] = useState(defaultLocations);
   
-  // Authentication state (requires entering QUIÑONES + DNI)
+  // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('stockpile_auth') === 'true';
   });
 
   const [userDni, setUserDni] = useState(() => {
     return sessionStorage.getItem('stockpile_dni') || '';
+  });
+
+  const [colegioCode, setColegioCode] = useState(() => {
+    return sessionStorage.getItem('stockpile_colegio') || 'QUIÑONES';
+  });
+
+  const [institutionName, setInstitutionName] = useState(() => {
+    return sessionStorage.getItem('stockpile_institution') || 'I.E. JOSÉ ABELARDO QUIÑONES';
   });
 
   // Active View state ('home' | 'scan' | 'inventory')
@@ -301,7 +61,27 @@ export default function App() {
     return items.filter(item => item.scannedByDni === userDni || (!item.scannedByDni && item.operatorDni === userDni)).length;
   }, [items, userDni]);
 
-  // Dynamic Backend Host resolution (supports localhost, local network IP, and production)
+  // Dynamic Backend API & WebSocket resolution for Production & Development
+  const getApiBaseUrl = () => {
+    if (import.meta.env.VITE_BACKEND_URL) {
+      return import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '');
+    }
+    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+    return `http://${host}:3001`;
+  };
+
+  const getWsUrl = () => {
+    if (import.meta.env.VITE_BACKEND_URL) {
+      try {
+        const u = new URL(import.meta.env.VITE_BACKEND_URL);
+        const protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${u.host}`;
+      } catch (e) {}
+    }
+    const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+    return `ws://${host}:3001`;
+  };
+
   const getBackendHost = () => {
     return typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
   };
@@ -318,12 +98,12 @@ export default function App() {
     } catch (e) {}
   }, []);
 
-  // Fetch real inventory items from MongoDB Atlas backend API on load
+  // Fetch real inventory items from backend API on load, scoped to current colegio
   useEffect(() => {
     const fetchRealInventory = async () => {
-      const host = getBackendHost();
+      const apiUrl = getApiBaseUrl();
       try {
-        const res = await fetch(`http://${host}:3001/api/inventory`);
+        const res = await fetch(`${apiUrl}/api/inventory?colegio=${encodeURIComponent(colegioCode)}`);
         const data = await res.json();
         if (data.success && Array.isArray(data.items)) {
           setItems(data.items);
@@ -333,15 +113,17 @@ export default function App() {
         console.log('Backend offline o reconectando...');
       }
     };
-    fetchRealInventory();
-  }, []);
+    if (isAuthenticated) {
+      fetchRealInventory();
+    }
+  }, [isAuthenticated, colegioCode]);
 
-  // WebSocket connection to backend Node.js server for desktop synchronization
+  // WebSocket connection to backend server for desktop synchronization
   useEffect(() => {
     let ws;
-    const host = getBackendHost();
+    const wsUrl = getWsUrl();
     try {
-      ws = new WebSocket(`ws://${host}:3001`);
+      ws = new WebSocket(wsUrl);
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -374,29 +156,39 @@ export default function App() {
     };
   }, []);
 
-  // Save/Update Item to Real Inventory (MongoDB Atlas + LocalStorage)
+  // Save/Update Item to Real Inventory
   const handleSaveFromFicha = (savedItem) => {
-    const host = getBackendHost();
+    const apiUrl = getApiBaseUrl();
+    const itemWithColegio = {
+      ...savedItem,
+      colegio: savedItem.colegio || colegioCode
+    };
+
     setItems(prev => {
-      const exists = prev.some(i => i.code === savedItem.code || i.id === savedItem.id);
+      const exists = prev.some(i => i.code === itemWithColegio.code || i.id === itemWithColegio.id);
       const nextState = exists
-        ? prev.map(i => (i.code === savedItem.code || i.id === savedItem.id) ? { ...i, ...savedItem } : i)
-        : [savedItem, ...prev];
+        ? prev.map(i => (i.code === itemWithColegio.code || i.id === itemWithColegio.id) ? { ...i, ...itemWithColegio } : i)
+        : [itemWithColegio, ...prev];
       localStorage.setItem('stockpile_real_inventory', JSON.stringify(nextState));
       return nextState;
     });
 
-    // Send POST to MongoDB Atlas API server
-    fetch(`http://${host}:3001/api/inventory/save`, {
+    fetch(`${apiUrl}/api/inventory/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(savedItem)
+      body: JSON.stringify(itemWithColegio)
     }).catch(err => console.error('Error al guardar en backend:', err));
   };
 
   const handleAuthenticated = (data) => {
     if (data && data.dni) {
       setUserDni(data.dni);
+    }
+    if (data && data.colegio) {
+      setColegioCode(data.colegio);
+    }
+    if (data && data.institution) {
+      setInstitutionName(data.institution);
     }
     setIsAuthenticated(true);
     setActiveView('home');
@@ -405,8 +197,12 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('stockpile_auth');
     sessionStorage.removeItem('stockpile_dni');
+    sessionStorage.removeItem('stockpile_colegio');
+    sessionStorage.removeItem('stockpile_institution');
     setIsAuthenticated(false);
     setUserDni('');
+    setColegioCode('QUIÑONES');
+    setInstitutionName('I.E. JOSÉ ABELARDO QUIÑONES');
     setActiveView('home');
   };
   
@@ -544,10 +340,10 @@ export default function App() {
 
               <h1 className="ficha-header-title">Ficha Patrimonial</h1>
               <p className="ficha-header-subtitle">Control de Bienes · Registro 2026</p>
-              <p className="ficha-institution-tag">I.E. JOSÉ ABELARDO QUIÑONES</p>
+              <p className="ficha-institution-tag">{institutionName}</p>
 
               <div className="home-user-badge">
-                👤 Operador DNI: <strong>{userDni || 'No registrado'}</strong>
+                👤 Operador DNI: <strong>{userDni || 'No registrado'}</strong> | 🏫 Código: <strong>{colegioCode}</strong>
               </div>
             </div>
 
@@ -568,12 +364,26 @@ export default function App() {
                   <div className="card-btn-icon">📷</div>
                   <div className="card-btn-content">
                     <h2>Escanear QR</h2>
-                    <p>Escanee el código QR e ingrese la información del bien</p>
+                    <p>Ingresar bienes escaneando únicamente el código QR con la cámara</p>
                   </div>
                   <div className="card-btn-arrow">→</div>
                 </button>
 
-                {/* Button 2: Revisar Inventario */}
+                {/* Button 2: Inventario de forma manual */}
+                <button 
+                  type="button"
+                  className="home-card-btn session-inventory-btn"
+                  onClick={() => setActiveView('session')}
+                >
+                  <div className="card-btn-icon">📝</div>
+                  <div className="card-btn-content">
+                    <h2>Inventario de forma manual</h2>
+                    <p>Iniciar sesión de toma de inventario por ambiente y control de faltantes/sobrantes</p>
+                  </div>
+                  <div className="card-btn-arrow">→</div>
+                </button>
+
+                {/* Button 3: Revisar Inventario */}
                 <button 
                   type="button"
                   className="home-card-btn secondary-inventory"
@@ -582,7 +392,7 @@ export default function App() {
                   <div className="card-btn-icon">📋</div>
                   <div className="card-btn-content">
                     <h2>Revisar Inventario</h2>
-                    <p>Ver los bienes inventariados en este dispositivo</p>
+                    <p>Ver y consultar los bienes inventariados en el sistema</p>
                     {userInventoriedCount > 0 && (
                       <span className="home-count-badge">
                         {userInventoriedCount} {userInventoriedCount === 1 ? 'bien registrado' : 'bienes registrados'}
@@ -617,7 +427,17 @@ export default function App() {
         />
       )}
 
-      {/* Screen 3: Review Inventory */}
+      {/* Screen 3: Toma de Inventario por Ambiente */}
+      {activeView === 'session' && (
+        <TomaInventarioSesion
+          onBackToHome={() => setActiveView('home')}
+          showToast={showToast}
+          getBackendHost={getBackendHost}
+          userDni={userDni}
+        />
+      )}
+
+      {/* Screen 4: Review Inventory */}
       {activeView === 'inventory' && (
         <MyInventoriedView
           items={items}

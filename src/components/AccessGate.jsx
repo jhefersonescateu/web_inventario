@@ -1,5 +1,13 @@
 import React, { useState } from 'react';
 
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '');
+  }
+  const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  return `http://${host}:3001`;
+};
+
 export default function AccessGate({ onAuthenticated }) {
   const [accessCode, setAccessCode] = useState('');
   const [dni, setDni] = useState('');
@@ -14,30 +22,47 @@ export default function AccessGate({ onAuthenticated }) {
       setErrorMsg('Por favor ingrese el código de inventariado.');
       return;
     }
+    if (!dni.trim()) {
+      setErrorMsg('⚠️ Ingrese su número de DNI para identificar quién está ingresando.');
+      return;
+    }
 
-    const cleanInput = accessCode.trim().toUpperCase();
-    const cleanDni = dni.trim();
+    setIsLoading(true);
 
-    // Validate code: QUIÑONES or QUINONES
-    if (cleanInput === 'QUIÑONES' || cleanInput === 'QUINONES') {
-      if (!cleanDni) {
-        setErrorMsg('⚠️ Ingrese su número de DNI para identificar quién está ingresando.');
+    try {
+      const apiUrl = getApiBaseUrl();
+      const res = await fetch(`${apiUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: accessCode.trim() })
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        setErrorMsg(data.message || '❌ Código incorrecto. Acceso denegado.');
+        setIsLoading(false);
         return;
       }
-      setIsLoading(true);
-      setTimeout(() => {
-        setIsLoading(false);
-        // Save session in sessionStorage
-        sessionStorage.setItem('stockpile_auth', 'true');
-        sessionStorage.setItem('stockpile_dni', cleanDni);
-        onAuthenticated({ code: cleanInput, dni: cleanDni });
-      }, 400);
-    } else {
-      setIsLoading(true);
-      setTimeout(() => {
-        setIsLoading(false);
-        setErrorMsg('❌ Código incorrecto. Debe ingresar: QUIÑONES');
-      }, 400);
+
+      // Acceso concedido — guardar sesión
+      const cleanDni = dni.trim();
+      sessionStorage.setItem('stockpile_auth', 'true');
+      sessionStorage.setItem('stockpile_dni', cleanDni);
+      sessionStorage.setItem('stockpile_colegio', data.colegio);
+      sessionStorage.setItem('stockpile_institution', data.institution);
+
+      onAuthenticated({
+        code: data.colegio,
+        dni: cleanDni,
+        colegio: data.colegio,
+        institution: data.institution
+      });
+    } catch (err) {
+      console.error('Error al verificar acceso:', err);
+      setErrorMsg('❌ Error de conexión al servidor. Verifique que el servidor esté en línea.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -66,7 +91,7 @@ export default function AccessGate({ onAuthenticated }) {
                 id="access-code-input"
                 type="text"
                 className={`access-input ${errorMsg && !accessCode ? 'access-input-error' : ''}`}
-                placeholder="Ingrese código (ej: QUIÑONES)"
+                placeholder="Código del Colegio (ej: QUIÑONES, SANMARTIN)"
                 value={accessCode}
                 onChange={(e) => setAccessCode(e.target.value)}
                 autoFocus
@@ -96,7 +121,7 @@ export default function AccessGate({ onAuthenticated }) {
           {errorMsg && <div className="access-error-box" style={{ marginTop: '12px' }}>{errorMsg}</div>}
 
           <div className="access-hint" style={{ marginTop: '12px' }}>
-            💡 <strong>Instrucciones:</strong> Ingrese el código <code>QUIÑONES</code> y su número de DNI para registrar e identificar las lecturas de su dispositivo.
+            💡 <strong>Instrucciones Multi-Colegio:</strong> Ingrese el código de su colegio (ej: <code>QUIÑONES</code>, <code>SANMARTIN</code>) y su DNI. Se cargará o creará automáticamente la base de datos de dicho colegio.
           </div>
 
           <button 
