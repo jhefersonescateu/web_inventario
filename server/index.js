@@ -72,7 +72,26 @@ async function initDatabase() {
         scannedAt        TEXT    DEFAULT (datetime('now')),
         FOREIGN KEY (sesionId) REFERENCES inventario_sesiones(id)
       )`,
-      // Tabla de códigos de acceso autorizados por institución
+      // Tabla de acceso para credenciales de administradores
+      `CREATE TABLE IF NOT EXISTS acceso (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        email       TEXT    NOT NULL UNIQUE,
+        password    TEXT    NOT NULL,
+        activo      INTEGER DEFAULT 1,
+        created_at  TEXT    DEFAULT (datetime('now'))
+      )`,
+      // Tabla de administración para controlar códigos de acceso autorizados por institución
+      `CREATE TABLE IF NOT EXISTS administracion (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo              TEXT    NOT NULL UNIQUE,
+        institucion         TEXT    NOT NULL,
+        encargado_nombre    TEXT    DEFAULT '',
+        encargado_telefono  TEXT    DEFAULT '',
+        direccion           TEXT    DEFAULT '',
+        activo              INTEGER DEFAULT 1,
+        created_at          TEXT    DEFAULT (datetime('now'))
+      )`,
+      // Tabla de códigos de acceso (mantenida por compatibilidad)
       `CREATE TABLE IF NOT EXISTS codigos_acceso (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         codigo      TEXT    NOT NULL UNIQUE,
@@ -82,15 +101,33 @@ async function initDatabase() {
       )`
     ], 'write');
 
-    // Insertar código QUIÑONES como dato inicial si la tabla está vacía
+    // Migraciones automáticas para agregar columnas si la tabla ya existía
+    try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_nombre TEXT DEFAULT ''`); } catch (e) {}
+    try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_telefono TEXT DEFAULT ''`); } catch (e) {}
+    try { await db.execute(`ALTER TABLE administracion ADD COLUMN direccion TEXT DEFAULT ''`); } catch (e) {}
+
+    // Insertar credenciales de administrador por defecto en la tabla acceso si no existen
     await db.execute(
-      `INSERT OR IGNORE INTO codigos_acceso (codigo, institucion)
-       VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES')`
+      `INSERT OR IGNORE INTO acceso (email, password)
+       VALUES ('admin@gmail.com', '990246774')`
     );
+
+    // Insertar código QUIÑONES inicial solo si la tabla administracion estuviera completamente vacía
+    const checkAdmin = await db.execute('SELECT COUNT(*) as count FROM administracion');
+    if (checkAdmin.rows[0] && Number(checkAdmin.rows[0].count) === 0) {
+      await db.execute(
+        `INSERT OR IGNORE INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion)
+         VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES', 'Área de Patrimonio', '', 'Sede Principal')`
+      );
+      await db.execute(
+        `INSERT OR IGNORE INTO codigos_acceso (codigo, institucion)
+         VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES')`
+      );
+    }
 
     isTursoConnected = true;
     console.log('🗄️  Conectado exitosamente a Turso DB (5 GB Gratis - SQLite en la Nube)');
-    console.log('📋 Tablas: inventario_quinones | inventario_sesiones | inventario_detalles | codigos_acceso');
+    console.log('📋 Tablas: inventario_quinones | inventario_sesiones | inventario_detalles | acceso | administracion | codigos_acceso');
   } catch (err) {
     console.error('❌ Error al inicializar Turso DB:', err.message);
   }
@@ -190,7 +227,7 @@ function broadcastScanEvent(data) {
 
 // ── REST ENDPOINTS ────────────────────────────────────────────────────────────
 
-// 1. Login — Valida código de acceso contra la tabla codigos_acceso en Turso DB
+// 1. Login — Valida código de acceso únicamente contra la tabla administracion en Turso DB
 app.post('/api/auth/login', async (req, res) => {
   const { code } = req.body;
   if (!code || !code.trim()) {
@@ -199,27 +236,185 @@ app.post('/api/auth/login', async (req, res) => {
   const normalized = code.trim().toUpperCase();
 
   try {
-    // Buscar el código en la tabla de códigos autorizados
-    const result = await db.execute({
-      sql: 'SELECT * FROM codigos_acceso WHERE UPPER(codigo) = ? AND activo = 1',
+    // Buscar el código en la tabla administracion
+    let result = await db.execute({
+      sql: 'SELECT * FROM administracion WHERE UPPER(codigo) = ? AND activo = 1',
       args: [normalized]
     });
+
+    // Fallback a la tabla codigos_acceso si la principal no lo encuentra
+    if (result.rows.length === 0) {
+      result = await db.execute({
+        sql: 'SELECT * FROM codigos_acceso WHERE UPPER(codigo) = ? AND activo = 1',
+        args: [normalized]
+      });
+    }
 
     if (result.rows.length === 0) {
       console.log(`🚫 Código de acceso rechazado: ${normalized}`);
       return res.status(401).json({
         success: false,
-        message: '❌ Código no autorizado. Verifique que el código sea el correcto para su institución.'
+        message: '❌ Código no autorizado. No existe en la tabla de administración.'
       });
     }
 
     const registro = result.rows[0];
     const institution = registro.institucion;
-    console.log(`🔑 Login exitoso: ${normalized} → ${institution}`);
+    console.log(`🔑 Login exitoso desde administración: ${normalized} → ${institution}`);
     return res.json({ success: true, message: 'Acceso verificado', colegio: normalized, institution, year: 2026 });
   } catch (err) {
     console.error('Error al verificar código de acceso:', err.message);
     return res.status(500).json({ success: false, message: 'Error al verificar el código. Intente nuevamente.' });
+  }
+});
+
+// 1.1 POST /api/auth/admin-login — Autenticación de Administrador consultando la tabla acceso en Turso DB
+app.post('/api/auth/admin-login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !email.trim() || !password) {
+    return res.status(400).json({ success: false, message: 'Correo y contraseña son requeridos' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPass = password.trim();
+
+  try {
+    const result = await db.execute({
+      sql: 'SELECT * FROM acceso WHERE LOWER(email) = ? AND password = ? AND activo = 1',
+      args: [cleanEmail, cleanPass]
+    });
+
+    if (result.rows.length > 0) {
+      console.log(`🛡️ Acceso concedido al Panel Administrativo desde Turso DB para: ${cleanEmail}`);
+      return res.json({ success: true, message: 'Autenticación de administrador exitosa.' });
+    }
+
+    console.log(`🚫 Intento fallido de login de administrador (no encontrado en tabla acceso): ${cleanEmail}`);
+    return res.status(401).json({ success: false, message: '❌ Credenciales de administrador incorrectas.' });
+  } catch (err) {
+    console.error('Error al verificar acceso en Turso DB:', err.message);
+    return res.status(500).json({ success: false, message: 'Error de servidor al validar credenciales.' });
+  }
+});
+
+// 1b. GET /api/administracion — Obtener lista de códigos autorizados
+app.get('/api/administracion', async (req, res) => {
+  try {
+    const result = await db.execute('SELECT * FROM administracion ORDER BY created_at DESC');
+    return res.json({ success: true, count: result.rows.length, codigos: result.rows });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1c. POST /api/administracion — Agregar un nuevo código autorizado con encargado y dirección
+app.post('/api/administracion', async (req, res) => {
+  const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
+  if (!codigo || !codigo.trim()) {
+    return res.status(400).json({ success: false, message: 'El campo "codigo" es obligatorio' });
+  }
+  const cleanCodigo = codigo.trim().toUpperCase();
+  const cleanInst = (institucion || cleanCodigo).trim();
+  const cleanEncargado = (encargado_nombre || '').trim();
+  const cleanTel = (encargado_telefono || '').trim();
+  const cleanDir = (direccion || '').trim();
+
+  try {
+    await db.execute({
+      sql: `INSERT INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir]
+    });
+    // Sincronizar también en codigos_acceso
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO codigos_acceso (codigo, institucion) VALUES (?, ?)',
+      args: [cleanCodigo, cleanInst]
+    });
+
+    console.log(`➕ Código agregado a administración: ${cleanCodigo} (${cleanInst}) - Encargado: ${cleanEncargado}`);
+    return res.json({ success: true, message: `Código ${cleanCodigo} registrado exitosamente.` });
+  } catch (err) {
+    if (err.message && err.message.includes('UNIQUE')) {
+      return res.status(400).json({ success: false, message: `El código "${cleanCodigo}" ya existe en la tabla de administración.` });
+    }
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1d. PUT /api/administracion/:id — Editar información de un código existente
+app.put('/api/administracion/:id', async (req, res) => {
+  const { id } = req.params;
+  const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
+  if (!codigo || !codigo.trim()) {
+    return res.status(400).json({ success: false, message: 'El código es obligatorio.' });
+  }
+  const cleanCodigo = codigo.trim().toUpperCase();
+  const cleanInst = (institucion || cleanCodigo).trim();
+  const cleanEncargado = (encargado_nombre || '').trim();
+  const cleanTel = (encargado_telefono || '').trim();
+  const cleanDir = (direccion || '').trim();
+
+  try {
+    const oldRes = await db.execute({ sql: 'SELECT codigo FROM administracion WHERE id = ?', args: [id] });
+    const oldCodigo = oldRes.rows[0]?.codigo;
+
+    await db.execute({
+      sql: `UPDATE administracion SET codigo = ?, institucion = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ?`,
+      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir, id]
+    });
+
+    if (oldCodigo) {
+      await db.execute({
+        sql: 'UPDATE codigos_acceso SET codigo = ?, institucion = ? WHERE UPPER(codigo) = UPPER(?)',
+        args: [cleanCodigo, cleanInst, oldCodigo]
+      });
+    }
+
+    console.log(`✏️ Código de administración actualizado (ID: ${id}): ${cleanCodigo}`);
+    return res.json({ success: true, message: `Información de ${cleanCodigo} actualizada correctamente.` });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1e. PATCH /api/administracion/:id/toggle — Activar / Desactivar código
+app.patch('/api/administracion/:id/toggle', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const curr = await db.execute({ sql: 'SELECT codigo, activo FROM administracion WHERE id = ?', args: [id] });
+    if (!curr.rows[0]) return res.status(404).json({ success: false, message: 'Código no encontrado' });
+
+    const newStatus = curr.rows[0].activo === 1 ? 0 : 1;
+    const codigo = curr.rows[0].codigo;
+
+    await db.execute({ sql: 'UPDATE administracion SET activo = ? WHERE id = ?', args: [newStatus, id] });
+    await db.execute({ sql: 'UPDATE codigos_acceso SET activo = ? WHERE UPPER(codigo) = UPPER(?)', args: [newStatus, codigo] });
+
+    const statusText = newStatus === 1 ? 'activado' : 'desactivado';
+    console.log(`🔄 Código ${codigo} ${statusText} (ID: ${id})`);
+    return res.json({ success: true, message: `Código ${codigo} ${statusText} correctamente.`, activo: newStatus });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1f. DELETE /api/administracion/:id — Eliminar un código de usuario/institución
+app.delete('/api/administracion/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const itemRes = await db.execute({ sql: 'SELECT codigo FROM administracion WHERE id = ?', args: [id] });
+    const item = itemRes.rows[0];
+
+    await db.execute({ sql: 'DELETE FROM administracion WHERE id = ?', args: [id] });
+    if (item && item.codigo) {
+      await db.execute({ sql: 'DELETE FROM codigos_acceso WHERE UPPER(codigo) = UPPER(?)', args: [item.codigo] });
+    }
+
+    console.log(`🗑️ Código de administración eliminado (ID: ${id})`);
+    return res.json({ success: true, message: 'Código eliminado exitosamente.' });
+  } catch (err) {
+    console.error('Error al eliminar de administración:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
