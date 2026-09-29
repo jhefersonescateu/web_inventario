@@ -20,11 +20,109 @@ const db = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 let isTursoConnected = false;
 let dbInitPromise = null;
 
+// ── HELPER TABLA POR COLEGIO DINÁMICA ──────────────────────────────────────
+const createdTablesSet = new Set(['inventario_quinones']);
+
+function getSchoolTableName(codigo) {
+  if (!codigo || !codigo.trim()) return 'inventario_quinones';
+  const clean = codigo
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (!clean || clean === 'quinones') return 'inventario_quinones';
+  return `inventario_${clean}`;
+}
+
+async function ensureSchoolTableExists(tableName) {
+  if (!tableName) return 'inventario_quinones';
+  const safeName = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+  if (!safeName) return 'inventario_quinones';
+  if (createdTablesSet.has(safeName)) return safeName;
+
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS ${safeName} (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        code          TEXT    NOT NULL UNIQUE,
+        name          TEXT    NOT NULL,
+        category      TEXT    DEFAULT 'Equipos Tecnológicos',
+        colegio       TEXT    DEFAULT '',
+        location      TEXT    DEFAULT '',
+        quantity      INTEGER DEFAULT 1,
+        status        TEXT    DEFAULT 'Bueno',
+        situacion     TEXT    DEFAULT '',
+        brand         TEXT    DEFAULT '',
+        model         TEXT    DEFAULT '',
+        serialNumber  TEXT    DEFAULT '',
+        alto          REAL,
+        ancho         REAL,
+        largo         REAL,
+        tipoMaterial  TEXT    DEFAULT '',
+        color         TEXT    DEFAULT '',
+        details       TEXT    DEFAULT '',
+        notes         TEXT    DEFAULT '',
+        customFields  TEXT    DEFAULT '{}',
+        specs         TEXT    DEFAULT '{}',
+        educationalLevel TEXT DEFAULT '',
+        responsible   TEXT    DEFAULT '',
+        verified      INTEGER DEFAULT 1,
+        scannedByDni  TEXT    DEFAULT '',
+        scannedAt     TEXT    DEFAULT '',
+        created_at    TEXT    DEFAULT (datetime('now')),
+        updated_at    TEXT    DEFAULT (datetime('now'))
+      )
+    `);
+    createdTablesSet.add(safeName);
+    console.log(`✨ Tabla de inventario asegurada: ${safeName}`);
+  } catch (err) {
+    console.error(`❌ Error al crear tabla ${safeName}:`, err.message);
+  }
+  return safeName;
+}
+
+async function resolveSchoolTable(colegio) {
+  if (!colegio || !colegio.trim()) return 'inventario_quinones';
+  const cleanCode = colegio.trim().toUpperCase();
+
+  try {
+    const res = await db.execute({
+      sql: 'SELECT tabla_inventario FROM registro_colegios WHERE UPPER(codigo) = ?',
+      args: [cleanCode]
+    });
+    if (res.rows.length > 0 && res.rows[0].tabla_inventario) {
+      const tName = res.rows[0].tabla_inventario;
+      await ensureSchoolTableExists(tName);
+      return tName;
+    }
+  } catch (e) {}
+
+  const dynamicName = getSchoolTableName(cleanCode);
+  await ensureSchoolTableExists(dynamicName);
+  return dynamicName;
+}
+
 // ── INICIALIZAR TABLAS EN TURSO ──────────────────────────────────────────────
 async function initDatabase() {
   try {
     await db.batch([
-      // Tabla principal de bienes patrimoniales
+      // Tabla general de registro de colegios y sus tablas asociadas
+      `CREATE TABLE IF NOT EXISTS registro_colegios (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo              TEXT    NOT NULL UNIQUE,
+        institucion         TEXT    NOT NULL,
+        tabla_inventario    TEXT    NOT NULL UNIQUE,
+        encargado_nombre    TEXT    DEFAULT '',
+        encargado_telefono  TEXT    DEFAULT '',
+        direccion           TEXT    DEFAULT '',
+        activo              INTEGER DEFAULT 1,
+        created_at          TEXT    DEFAULT (datetime('now'))
+      )`,
+      // Tabla principal por defecto de bienes patrimoniales
       `CREATE TABLE IF NOT EXISTS inventario_quinones (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         code          TEXT    NOT NULL UNIQUE,
@@ -85,7 +183,7 @@ async function initDatabase() {
         activo      INTEGER DEFAULT 1,
         created_at  TEXT    DEFAULT (datetime('now'))
       )`,
-      // Tabla de administración para controlar códigos de acceso autorizados por institución
+      // Tabla de administración (compatibilidad)
       `CREATE TABLE IF NOT EXISTS administracion (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         codigo              TEXT    NOT NULL UNIQUE,
@@ -96,7 +194,7 @@ async function initDatabase() {
         activo              INTEGER DEFAULT 1,
         created_at          TEXT    DEFAULT (datetime('now'))
       )`,
-      // Tabla de códigos de acceso (mantenida por compatibilidad)
+      // Tabla de códigos de acceso (compatibilidad)
       `CREATE TABLE IF NOT EXISTS codigos_acceso (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         codigo      TEXT    NOT NULL UNIQUE,
@@ -106,10 +204,37 @@ async function initDatabase() {
       )`
     ], 'write');
 
-    // Migraciones automáticas para agregar columnas si la tabla ya existía
+    // Migraciones automáticas
     try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_nombre TEXT DEFAULT ''`); } catch (e) {}
     try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_telefono TEXT DEFAULT ''`); } catch (e) {}
     try { await db.execute(`ALTER TABLE administracion ADD COLUMN direccion TEXT DEFAULT ''`); } catch (e) {}
+
+    // Insertar colegio por defecto si no existe
+    await db.execute(`
+      INSERT OR IGNORE INTO registro_colegios (codigo, institucion, tabla_inventario)
+      VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES', 'inventario_quinones')
+    `);
+    await db.execute(`
+      INSERT OR IGNORE INTO administracion (codigo, institucion)
+      VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES')
+    `);
+
+    // Sincronizar administracion -> registro_colegios
+    try {
+      const adminRows = await db.execute('SELECT * FROM administracion');
+      for (const row of adminRows.rows) {
+        const tableN = getSchoolTableName(row.codigo);
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO registro_colegios
+                (codigo, institucion, tabla_inventario, encargado_nombre, encargado_telefono, direccion, activo)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [row.codigo, row.institucion || row.codigo, tableN, row.encargado_nombre || '', row.encargado_telefono || '', row.direccion || '', row.activo ?? 1]
+        });
+        await ensureSchoolTableExists(tableN);
+      }
+    } catch (syncErr) {
+      console.error('Error al sincronizar registro_colegios:', syncErr.message);
+    }
 
     // Insertar credenciales de administrador por defecto en la tabla acceso si no existen
     await db.execute(
@@ -118,8 +243,8 @@ async function initDatabase() {
     );
 
     isTursoConnected = true;
-    console.log('🗄️  Conectado exitosamente a Turso DB (5 GB Gratis - SQLite en la Nube)');
-    console.log('📋 Tablas: inventario_quinones | inventario_sesiones | inventario_detalles | acceso | administracion | codigos_acceso');
+    console.log('🗄️  Conectado exitosamente a Turso DB (SQLite en la Nube)');
+    console.log('📋 Tablas: registro_colegios | inventario_quinones | inventario_sesiones | inventario_detalles | acceso | administracion');
   } catch (err) {
     console.error('❌ Error al inicializar Turso DB:', err.message);
   }
@@ -250,7 +375,7 @@ function broadcastScanEvent(data) {
 
 // ── REST ENDPOINTS ────────────────────────────────────────────────────────────
 
-// 1. Login — Valida código de acceso únicamente contra la tabla administracion en Turso DB
+// 1. Login — Valida código contra la tabla general registro_colegios y verifica si está OPERATIVO
 app.post('/api/auth/login', async (req, res) => {
   const { code } = req.body;
   if (!code || !code.trim()) {
@@ -259,32 +384,53 @@ app.post('/api/auth/login', async (req, res) => {
   const normalized = code.trim().toUpperCase();
 
   try {
-    // Buscar el código en la tabla administracion
+    // Buscar el código en registro_colegios
     let result = await db.execute({
-      sql: 'SELECT * FROM administracion WHERE UPPER(codigo) = ? AND activo = 1',
+      sql: 'SELECT * FROM registro_colegios WHERE UPPER(codigo) = ?',
       args: [normalized]
     });
 
-    // Fallback a la tabla codigos_acceso si la principal no lo encuentra
+    // Fallback a la tabla administracion o codigos_acceso si no está en registro_colegios
     if (result.rows.length === 0) {
       result = await db.execute({
-        sql: 'SELECT * FROM codigos_acceso WHERE UPPER(codigo) = ? AND activo = 1',
+        sql: 'SELECT * FROM administracion WHERE UPPER(codigo) = ?',
         args: [normalized]
       });
     }
 
     if (result.rows.length === 0) {
-      console.log(`🚫 Código de acceso rechazado: ${normalized}`);
+      console.log(`🚫 Código de acceso rechazado (no existe): ${normalized}`);
       return res.status(401).json({
         success: false,
-        message: '❌ Código no autorizado. No existe en la tabla de administración.'
+        message: '❌ Código no autorizado. No existe en el registro de colegios.'
       });
     }
 
     const registro = result.rows[0];
-    const institution = registro.institucion;
-    console.log(`🔑 Login exitoso desde administración: ${normalized} → ${institution}`);
-    return res.json({ success: true, message: 'Acceso verificado', colegio: normalized, institution, year: 2026 });
+
+    // VERIFICAR ESTADO OPERATIVO (activo === 1)
+    if (registro.activo !== 1) {
+      console.log(`⛔ Código desactivado / No operativo: ${normalized}`);
+      return res.status(401).json({
+        success: false,
+        message: `❌ El código "${normalized}" está INACTIVO / NO OPERATIVO. Contacte al administrador para activarlo.`
+      });
+    }
+
+    const institution = registro.institucion || normalized;
+    const tableName = registro.tabla_inventario || getSchoolTableName(normalized);
+    await ensureSchoolTableExists(tableName);
+
+    console.log(`🔑 Login exitoso: ${normalized} → ${institution} | Tabla: ${tableName}`);
+    return res.json({
+      success: true,
+      message: 'Acceso verificado. Código en estado Operativo.',
+      colegio: normalized,
+      institution,
+      tabla: tableName,
+      estado: 'operativo',
+      year: 2026
+    });
   } catch (err) {
     console.error('Error al verificar código de acceso:', err.message);
     return res.status(500).json({ success: false, message: 'Error al verificar el código. Intente nuevamente.' });
@@ -320,18 +466,26 @@ app.post('/api/auth/admin-login', async (req, res) => {
   }
 });
 
-// 1b. GET /api/administracion — Obtener lista de códigos autorizados
-app.get('/api/administracion', async (req, res) => {
+// 1b. GET /api/registro-colegios & GET /api/administracion — Lista general de colegios y códigos
+const getSchoolsHandler = async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM administracion ORDER BY created_at DESC');
-    return res.json({ success: true, count: result.rows.length, codigos: result.rows });
+    const result = await db.execute('SELECT * FROM registro_colegios ORDER BY created_at DESC');
+    const codigos = result.rows.map(row => ({
+      ...row,
+      tabla_inventario: row.tabla_inventario || getSchoolTableName(row.codigo),
+      estado_operativo: row.activo === 1 ? 'Operativo' : 'Inactivo'
+    }));
+    return res.json({ success: true, count: codigos.length, codigos });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
-});
+};
 
-// 1c. POST /api/administracion — Agregar un nuevo código autorizado con encargado y dirección
-app.post('/api/administracion', async (req, res) => {
+app.get('/api/registro-colegios', getSchoolsHandler);
+app.get('/api/administracion',     getSchoolsHandler);
+
+// 1c. POST /api/registro-colegios & POST /api/administracion — Crear nuevo colegio y generar su tabla de inventario dinámica
+const saveSchoolHandler = async (req, res) => {
   const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
   if (!codigo || !codigo.trim()) {
     return res.status(400).json({ success: false, message: 'El campo "codigo" es obligatorio' });
@@ -341,31 +495,51 @@ app.post('/api/administracion', async (req, res) => {
   const cleanEncargado = (encargado_nombre || '').trim();
   const cleanTel = (encargado_telefono || '').trim();
   const cleanDir = (direccion || '').trim();
+  const tableName = getSchoolTableName(cleanCodigo);
 
   try {
+    // 1. Crear tabla propia de inventario para este colegio
+    await ensureSchoolTableExists(tableName);
+
+    // 2. Registrar en la tabla general registro_colegios
     await db.execute({
-      sql: `INSERT INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion)
-            VALUES (?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO registro_colegios (codigo, institucion, tabla_inventario, encargado_nombre, encargado_telefono, direccion, activo)
+            VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      args: [cleanCodigo, cleanInst, tableName, cleanEncargado, cleanTel, cleanDir]
+    });
+
+    // 3. Sincronizar también en administracion y codigos_acceso por compatibilidad
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion, activo)
+            VALUES (?, ?, ?, ?, ?, 1)`,
       args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir]
     });
-    // Sincronizar también en codigos_acceso
     await db.execute({
       sql: 'INSERT OR IGNORE INTO codigos_acceso (codigo, institucion) VALUES (?, ?)',
       args: [cleanCodigo, cleanInst]
     });
 
-    console.log(`➕ Código agregado a administración: ${cleanCodigo} (${cleanInst}) - Encargado: ${cleanEncargado}`);
-    return res.json({ success: true, message: `Código ${cleanCodigo} registrado exitosamente.` });
+    console.log(`➕ Colegio Creado: ${cleanCodigo} (${cleanInst}) → Tabla Creada: "${tableName}"`);
+    return res.json({
+      success: true,
+      message: `Colegio ${cleanCodigo} registrado exitosamente. Se ha creado la tabla "${tableName}" en la base de datos.`,
+      codigo: cleanCodigo,
+      institucion: cleanInst,
+      tabla: tableName
+    });
   } catch (err) {
     if (err.message && err.message.includes('UNIQUE')) {
-      return res.status(400).json({ success: false, message: `El código "${cleanCodigo}" ya existe en la tabla de administración.` });
+      return res.status(400).json({ success: false, message: `El código "${cleanCodigo}" ya existe en el registro de colegios.` });
     }
     return res.status(500).json({ success: false, error: err.message });
   }
-});
+};
 
-// 1d. PUT /api/administracion/:id — Editar información de un código existente
-app.put('/api/administracion/:id', async (req, res) => {
+app.post('/api/registro-colegios', saveSchoolHandler);
+app.post('/api/administracion',     saveSchoolHandler);
+
+// 1d. PUT /api/administracion/:id & /api/registro-colegios/:id — Editar información de un colegio
+const updateSchoolHandler = async (req, res) => {
   const { id } = req.params;
   const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
   if (!codigo || !codigo.trim()) {
@@ -376,100 +550,111 @@ app.put('/api/administracion/:id', async (req, res) => {
   const cleanEncargado = (encargado_nombre || '').trim();
   const cleanTel = (encargado_telefono || '').trim();
   const cleanDir = (direccion || '').trim();
+  const tableName = getSchoolTableName(cleanCodigo);
 
   try {
-    const oldRes = await db.execute({ sql: 'SELECT codigo FROM administracion WHERE id = ?', args: [id] });
-    const oldCodigo = oldRes.rows[0]?.codigo;
+    await ensureSchoolTableExists(tableName);
 
     await db.execute({
-      sql: `UPDATE administracion SET codigo = ?, institucion = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ?`,
-      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir, id]
+      sql: `UPDATE registro_colegios SET codigo = ?, institucion = ?, tabla_inventario = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ?`,
+      args: [cleanCodigo, cleanInst, tableName, cleanEncargado, cleanTel, cleanDir, id]
     });
 
-    if (oldCodigo) {
-      await db.execute({
-        sql: 'UPDATE codigos_acceso SET codigo = ?, institucion = ? WHERE UPPER(codigo) = UPPER(?)',
-        args: [cleanCodigo, cleanInst, oldCodigo]
-      });
-    }
+    await db.execute({
+      sql: `UPDATE administracion SET codigo = ?, institucion = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)`,
+      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir, id, cleanCodigo]
+    });
 
-    console.log(`✏️ Código de administración actualizado (ID: ${id}): ${cleanCodigo}`);
-    return res.json({ success: true, message: `Información de ${cleanCodigo} actualizada correctamente.` });
+    console.log(`✏️ Colegio actualizado (ID: ${id}): ${cleanCodigo} -> Tabla: ${tableName}`);
+    return res.json({ success: true, message: `Información de ${cleanCodigo} actualizada correctamente.`, tabla: tableName });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
-});
+};
 
-// 1e. PATCH /api/administracion/:id/toggle — Activar / Desactivar código
-app.patch('/api/administracion/:id/toggle', async (req, res) => {
+app.put('/api/registro-colegios/:id', updateSchoolHandler);
+app.put('/api/administracion/:id',     updateSchoolHandler);
+
+// 1e. PATCH /api/administracion/:id/toggle & /api/registro-colegios/:id/toggle — Activar / Desactivar código (Estado Operativo)
+const toggleSchoolHandler = async (req, res) => {
   const { id } = req.params;
   try {
-    const curr = await db.execute({ sql: 'SELECT codigo, activo FROM administracion WHERE id = ?', args: [id] });
-    if (!curr.rows[0]) return res.status(404).json({ success: false, message: 'Código no encontrado' });
+    const curr = await db.execute({ sql: 'SELECT codigo, activo FROM registro_colegios WHERE id = ?', args: [id] });
+    let record = curr.rows[0];
+    if (!record) {
+      const fallback = await db.execute({ sql: 'SELECT codigo, activo FROM administracion WHERE id = ?', args: [id] });
+      record = fallback.rows[0];
+    }
+    if (!record) return res.status(404).json({ success: false, message: 'Código no encontrado' });
 
-    const newStatus = curr.rows[0].activo === 1 ? 0 : 1;
-    const codigo = curr.rows[0].codigo;
+    const newStatus = record.activo === 1 ? 0 : 1;
+    const codigo = record.codigo;
 
-    await db.execute({ sql: 'UPDATE administracion SET activo = ? WHERE id = ?', args: [newStatus, id] });
+    await db.execute({ sql: 'UPDATE registro_colegios SET activo = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [newStatus, id, codigo] });
+    await db.execute({ sql: 'UPDATE administracion SET activo = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [newStatus, id, codigo] });
     await db.execute({ sql: 'UPDATE codigos_acceso SET activo = ? WHERE UPPER(codigo) = UPPER(?)', args: [newStatus, codigo] });
 
-    const statusText = newStatus === 1 ? 'activado' : 'desactivado';
-    console.log(`🔄 Código ${codigo} ${statusText} (ID: ${id})`);
-    return res.json({ success: true, message: `Código ${codigo} ${statusText} correctamente.`, activo: newStatus });
+    const statusText = newStatus === 1 ? 'ACTIVADO (Operativo)' : 'DESACTIVADO (No Operativo)';
+    console.log(`🔄 Colegio ${codigo} ${statusText}`);
+    return res.json({ success: true, message: `Código ${codigo} ${statusText} correctamente.`, activo: newStatus, estado: newStatus === 1 ? 'Operativo' : 'Inactivo' });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
-});
+};
 
-// 1f. DELETE /api/administracion/:id — Eliminar un código de usuario/institución
-app.delete('/api/administracion/:id', async (req, res) => {
+app.patch('/api/registro-colegios/:id/toggle', toggleSchoolHandler);
+app.patch('/api/administracion/:id/toggle',     toggleSchoolHandler);
+
+// 1f. DELETE /api/administracion/:id & /api/registro-colegios/:id — Eliminar un colegio
+const deleteSchoolHandler = async (req, res) => {
   const { id } = req.params;
   try {
-    const itemRes = await db.execute({ sql: 'SELECT codigo FROM administracion WHERE id = ?', args: [id] });
+    const itemRes = await db.execute({ sql: 'SELECT codigo FROM registro_colegios WHERE id = ?', args: [id] });
     const item = itemRes.rows[0];
+    const codigo = item ? item.codigo : '';
 
-    await db.execute({ sql: 'DELETE FROM administracion WHERE id = ?', args: [id] });
-    if (item && item.codigo) {
-      await db.execute({ sql: 'DELETE FROM codigos_acceso WHERE UPPER(codigo) = UPPER(?)', args: [item.codigo] });
+    await db.execute({ sql: 'DELETE FROM registro_colegios WHERE id = ?', args: [id] });
+    await db.execute({ sql: 'DELETE FROM administracion WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [id, codigo] });
+    if (codigo) {
+      await db.execute({ sql: 'DELETE FROM codigos_acceso WHERE UPPER(codigo) = UPPER(?)', args: [codigo] });
     }
 
-    console.log(`🗑️ Código de administración eliminado (ID: ${id})`);
-    return res.json({ success: true, message: 'Código eliminado exitosamente.' });
+    console.log(`🗑️ Colegio eliminado (ID: ${id})`);
+    return res.json({ success: true, message: 'Colegio eliminado del registro.' });
   } catch (err) {
-    console.error('Error al eliminar de administración:', err.message);
+    console.error('Error al eliminar colegio:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
-});
+};
 
-// 2. Obtener Inventario (filtrado por colegio)
+app.delete('/api/registro-colegios/:id', deleteSchoolHandler);
+app.delete('/api/administracion/:id',     deleteSchoolHandler);
+
+// 2. Obtener Inventario (filtrado por colegio / tabla específica)
 app.get('/api/inventory', async (req, res) => {
   try {
     const { colegio } = req.query;
-    let result;
-    if (colegio && colegio.trim()) {
-      result = await db.execute({
-        sql: 'SELECT * FROM inventario_quinones WHERE UPPER(colegio) = UPPER(?) ORDER BY updated_at DESC',
-        args: [colegio.trim()]
-      });
-    } else {
-      result = await db.execute('SELECT * FROM inventario_quinones ORDER BY updated_at DESC');
-    }
+    const tableName = await resolveSchoolTable(colegio);
+    const result = await db.execute(`SELECT * FROM ${tableName} ORDER BY updated_at DESC`);
     const items = result.rows.map(rowToItem);
-    return res.json({ success: true, count: items.length, items, colegio: colegio || 'Todos', source: 'Turso DB' });
+    return res.json({ success: true, count: items.length, items, colegio: colegio || 'Todos', tabla: tableName, source: 'Turso DB' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// 3. Guardar / Actualizar Bien Patrimonial (INSERT OR REPLACE)
+// 3. Guardar / Actualizar Bien Patrimonial en la Tabla Específica del Colegio
 const saveInventoryHandler = async (req, res) => {
   const d = req.body;
   if (!d || !d.code) return res.status(400).json({ success: false, message: 'Falta código del bien' });
 
   try {
     const code = (d.code || '').trim().toUpperCase();
+    const colegioCode = (d.colegio || 'QUIÑONES').trim();
+    const tableName = await resolveSchoolTable(colegioCode);
+
     await db.execute({
-      sql: `INSERT INTO inventario_quinones
+      sql: `INSERT INTO ${tableName}
               (code, name, category, colegio, location, quantity, status, situacion,
                brand, model, serialNumber, alto, ancho, largo, tipoMaterial, color,
                details, notes, customFields, specs, educationalLevel, responsible,
@@ -490,7 +675,7 @@ const saveInventoryHandler = async (req, res) => {
         code,
         d.name || '',
         d.category || 'Equipos Tecnológicos',
-        (d.colegio || 'QUIÑONES').toUpperCase(),
+        colegioCode.toUpperCase(),
         d.location || '',
         Number(d.quantity) || 1,
         d.status || 'Bueno',
@@ -515,11 +700,11 @@ const saveInventoryHandler = async (req, res) => {
       ]
     });
 
-    const saved = await db.execute({ sql: 'SELECT * FROM inventario_quinones WHERE code = ?', args: [code] });
+    const saved = await db.execute({ sql: `SELECT * FROM ${tableName} WHERE code = ?`, args: [code] });
     const savedItem = rowToItem(saved.rows[0]);
-    console.log(`💾 Bien guardado en Turso DB: ${code} - ${d.name}`);
-    broadcastScanEvent({ action: 'SAVE', item: savedItem });
-    return res.json({ success: true, message: 'Bien guardado en Turso DB (5 GB Gratis)', item: savedItem });
+    console.log(`💾 Bien guardado en ${tableName}: ${code} - ${d.name}`);
+    broadcastScanEvent({ action: 'SAVE', item: savedItem, tabla: tableName });
+    return res.json({ success: true, message: `Bien guardado en tabla ${tableName}`, item: savedItem, tabla: tableName });
   } catch (err) {
     console.error('Error al guardar bien:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -529,13 +714,15 @@ const saveInventoryHandler = async (req, res) => {
 app.post('/api/inventory',      saveInventoryHandler);
 app.post('/api/inventory/save', saveInventoryHandler);
 
-// 4. Eliminar Bien
+// 4. Eliminar Bien (de la tabla de su colegio)
 app.delete('/api/inventory/:code', async (req, res) => {
   const { code } = req.params;
+  const { colegio } = req.query;
   try {
-    await db.execute({ sql: 'DELETE FROM inventario_quinones WHERE code = ?', args: [code] });
-    broadcastScanEvent({ action: 'DELETE', code });
-    res.json({ success: true, message: `Bien ${code} eliminado` });
+    const tableName = await resolveSchoolTable(colegio);
+    await db.execute({ sql: `DELETE FROM ${tableName} WHERE code = ?`, args: [code] });
+    broadcastScanEvent({ action: 'DELETE', code, tabla: tableName });
+    res.json({ success: true, message: `Bien ${code} eliminado de la tabla ${tableName}` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -545,13 +732,10 @@ app.delete('/api/inventory/:code', async (req, res) => {
 app.post('/api/inventory/clear-all', async (req, res) => {
   try {
     const { colegio } = req.body;
-    if (colegio) {
-      await db.execute({ sql: 'DELETE FROM inventario_quinones WHERE UPPER(colegio) = UPPER(?)', args: [colegio] });
-    } else {
-      await db.execute('DELETE FROM inventario_quinones');
-    }
-    broadcastScanEvent({ action: 'CLEAR_ALL' });
-    res.json({ success: true, message: 'Inventario vaciado correctamente' });
+    const tableName = await resolveSchoolTable(colegio);
+    await db.execute(`DELETE FROM ${tableName}`);
+    broadcastScanEvent({ action: 'CLEAR_ALL', tabla: tableName });
+    res.json({ success: true, message: `Inventario de la tabla ${tableName} vaciado correctamente` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -562,9 +746,10 @@ app.post('/api/scan', async (req, res) => {
   const { code, name, category, location, status, scannedByDni, scannedAt, colegio } = req.body;
   console.log(`📡 QR Escaneado: ${code} (DNI: ${scannedByDni || 'Desconocido'})`);
   try {
+    const tableName = await resolveSchoolTable(colegio);
     if (code && name) {
       await db.execute({
-        sql: `INSERT INTO inventario_quinones (code, name, category, colegio, location, status, scannedByDni, scannedAt, updated_at)
+        sql: `INSERT INTO ${tableName} (code, name, category, colegio, location, status, scannedByDni, scannedAt, updated_at)
               VALUES (?,?,?,?,?,?,?,?,datetime('now'))
               ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name, category=excluded.category, colegio=excluded.colegio,
@@ -582,8 +767,8 @@ app.post('/api/scan', async (req, res) => {
         ]
       });
     }
-    broadcastScanEvent({ action: 'SCAN', item: req.body });
-    res.json({ success: true, message: 'Escaneo registrado en Turso DB y transmitido en tiempo real' });
+    broadcastScanEvent({ action: 'SCAN', item: req.body, tabla: tableName });
+    res.json({ success: true, message: `Escaneo registrado en tabla ${tableName} y transmitido en tiempo real`, tabla: tableName });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -595,20 +780,18 @@ app.post('/api/scan', async (req, res) => {
 app.get('/api/ambientes', async (req, res) => {
   try {
     const { colegio } = req.query;
-    let locSql = "SELECT DISTINCT location FROM inventario_quinones WHERE location IS NOT NULL AND location != ''";
+    const tableName = await resolveSchoolTable(colegio);
+    let locSql = `SELECT DISTINCT location FROM ${tableName} WHERE location IS NOT NULL AND location != ''`;
     let ambSql = "SELECT DISTINCT ambiente FROM inventario_sesiones WHERE ambiente IS NOT NULL AND ambiente != ''";
-    const locArgs = [];
     const ambArgs = [];
 
     if (colegio && colegio.trim()) {
-      locSql += " AND UPPER(colegio) = UPPER(?)";
       ambSql += " AND UPPER(colegio) = UPPER(?)";
-      locArgs.push(colegio.trim());
       ambArgs.push(colegio.trim());
     }
 
     const [locResult, ambResult] = await Promise.all([
-      db.execute({ sql: locSql, args: locArgs }),
+      db.execute(locSql),
       db.execute({ sql: ambSql, args: ambArgs })
     ]);
     const setAmbs = new Set([
@@ -616,7 +799,7 @@ app.get('/api/ambientes', async (req, res) => {
       ...ambResult.rows.map(r => r.ambiente)
     ]);
     const ambientes = Array.from(setAmbs).filter(a => a && a.trim()).map(a => a.trim()).sort();
-    return res.json({ success: true, ambientes, colegio: colegio || 'Todos' });
+    return res.json({ success: true, ambientes, colegio: colegio || 'Todos', tabla: tableName });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -690,12 +873,13 @@ app.post('/api/sesiones/:id/escanear', async (req, res) => {
     if (!sesion) return res.status(404).json({ success: false, message: 'Sesión no encontrada' });
     if (sesion.estado !== 'abierta') return res.status(400).json({ success: false, message: 'La sesión ya está cerrada.' });
 
+    const tableName = await resolveSchoolTable(sesion.colegio || sesion.codigoInventariado);
     const bienResult = await db.execute({
-      sql: 'SELECT * FROM inventario_quinones WHERE UPPER(TRIM(code)) = ?',
+      sql: `SELECT * FROM ${tableName} WHERE UPPER(TRIM(code)) = ?`,
       args: [codeClean]
     });
     const bien = bienResult.rows[0];
-    if (!bien) return res.status(404).json({ success: false, message: `El bien "${codeClean}" no existe en el catálogo.` });
+    if (!bien) return res.status(404).json({ success: false, message: `El bien "${codeClean}" no existe en el catálogo de la tabla ${tableName}.` });
 
     const dupResult = await db.execute({
       sql: 'SELECT id FROM inventario_detalles WHERE sesionId = ? AND UPPER(codigoBien) = ?',
@@ -763,14 +947,14 @@ app.post('/api/sesiones/:id/finalizar', async (req, res) => {
 
 // ── ENDPOINTS PARA INTEGRACIÓN CON PROGRAMA DE ESCRITORIO ────────────────────
 
-// GET /api/quinones — Obtener bienes con filtros opcionales
+// GET /api/quinones — Obtener bienes con filtros opcionales (de la tabla específica del colegio)
 app.get('/api/quinones', async (req, res) => {
   try {
     const { colegio, location, category, search } = req.query;
-    let sql = 'SELECT * FROM inventario_quinones WHERE 1=1';
+    const tableName = await resolveSchoolTable(colegio);
+    let sql = `SELECT * FROM ${tableName} WHERE 1=1`;
     const args = [];
 
-    if (colegio) { sql += ' AND UPPER(colegio) = UPPER(?)'; args.push(colegio); }
     if (location) { sql += ' AND LOWER(location) LIKE LOWER(?)'; args.push(`%${location}%`); }
     if (category) { sql += ' AND LOWER(category) LIKE LOWER(?)'; args.push(`%${category}%`); }
     if (search) {
@@ -781,7 +965,7 @@ app.get('/api/quinones', async (req, res) => {
 
     const result = await db.execute({ sql, args });
     const items = result.rows.map(rowToItem);
-    return res.json({ success: true, tabla: 'inventario_quinones', total: items.length, data: items });
+    return res.json({ success: true, tabla: tableName, colegio: colegio || 'Predeterminado', total: items.length, data: items });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -791,17 +975,15 @@ app.get('/api/quinones', async (req, res) => {
 app.get('/api/quinones/export', async (req, res) => {
   try {
     const { colegio } = req.query;
-    let sql = 'SELECT * FROM inventario_quinones';
-    const args = [];
-    if (colegio) { sql += ' WHERE UPPER(colegio) = UPPER(?)'; args.push(colegio); }
-    sql += ' ORDER BY code ASC';
+    const tableName = await resolveSchoolTable(colegio);
+    const sql = `SELECT * FROM ${tableName} ORDER BY code ASC`;
 
-    const result = await db.execute({ sql, args });
+    const result = await db.execute(sql);
     const registros = result.rows.map(item => ({
       codigo:              item.code,
       nombre:              item.name,
       categoria:           item.category,
-      colegio:             item.colegio || '',
+      colegio:             item.colegio || colegio || '',
       ubicacion_ambiente:  item.location || '',
       estado_conservacion: item.status || 'Bueno',
       situacion:           item.situacion || '',
@@ -820,7 +1002,7 @@ app.get('/api/quinones/export', async (req, res) => {
       creado_el:           item.created_at
     }));
 
-    return res.json({ success: true, tabla: 'inventario_quinones', formato: 'flat_export', total: registros.length, registros });
+    return res.json({ success: true, tabla: tableName, colegio: colegio || 'Predeterminado', formato: 'flat_export', total: registros.length, registros });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }

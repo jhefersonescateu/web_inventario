@@ -52,17 +52,17 @@ export default function AccessGate({ onAuthenticated }) {
     loading: false
   });
 
-  // Obtener lista de códigos autorizados desde el backend
+  // Obtener lista de códigos autorizados desde el backend (registro_colegios)
   const fetchAdminCodes = async () => {
     try {
       const apiUrl = getApiBaseUrl();
-      const res = await fetch(`${apiUrl}/api/administracion`);
+      const res = await fetch(`${apiUrl}/api/registro-colegios`);
       const data = await res.json();
       if (data.success && Array.isArray(data.codigos)) {
         setAdminCodes(data.codigos);
       }
     } catch (err) {
-      console.error('Error al cargar lista de administración:', err);
+      console.error('Error al cargar lista de registro de colegios:', err);
     }
   };
 
@@ -186,7 +186,7 @@ export default function AccessGate({ onAuthenticated }) {
 
     const apiUrl = getApiBaseUrl();
     const isEdit = Boolean(editingId);
-    const url = isEdit ? `${apiUrl}/api/administracion/${editingId}` : `${apiUrl}/api/administracion`;
+    const url = isEdit ? `${apiUrl}/api/registro-colegios/${editingId}` : `${apiUrl}/api/registro-colegios`;
     const method = isEdit ? 'PUT' : 'POST';
 
     try {
@@ -240,10 +240,10 @@ export default function AccessGate({ onAuthenticated }) {
   const executeToggleActive = async (id, codigo) => {
     try {
       const apiUrl = getApiBaseUrl();
-      const res = await fetch(`${apiUrl}/api/administracion/${id}/toggle`, { method: 'PATCH' });
+      const res = await fetch(`${apiUrl}/api/registro-colegios/${id}/toggle`, { method: 'PATCH' });
       const data = await res.json();
       if (data.success) {
-        setAdminMsg(`Código "${codigo}" ${data.activo === 1 ? 'ACTIVADO' : 'DESACTIVADO'} correctamente.`);
+        setAdminMsg(`Código "${codigo}" ${data.activo === 1 ? 'ACTIVADO (Operativo)' : 'DESACTIVADO (No Operativo)'} correctamente.`);
         fetchAdminCodes();
       } else {
         setAdminMsg(data.message || 'Error al cambiar estado.');
@@ -257,7 +257,7 @@ export default function AccessGate({ onAuthenticated }) {
   const executeDeleteCode = async (id, codigo) => {
     try {
       const apiUrl = getApiBaseUrl();
-      const res = await fetch(`${apiUrl}/api/administracion/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${apiUrl}/api/registro-colegios/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setAdminMsg(`Código "${codigo}" eliminado correctamente.`);
@@ -590,13 +590,14 @@ export default function AccessGate({ onAuthenticated }) {
                   ) : (
                     adminCodes.map((item) => {
                       const isActivo = item.activo === 1;
+                      const tablaNombre = item.tabla_inventario || ('inventario_' + item.codigo.toLowerCase().replace(/[^a-z0-9]/g, '_'));
                       return (
                         <div key={item.id || item.codigo} style={{ padding: '10px 12px', background: isActivo ? '#f8fafc' : '#fff5f5', borderRadius: '10px', border: `1px solid ${isActivo ? '#e2e8f0' : '#fecaca'}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <strong style={{ color: '#1e293b', fontSize: '0.92rem' }}>{item.codigo}</strong>
                               <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: '10px', background: isActivo ? '#dcfce7' : '#fee2e2', color: isActivo ? '#166534' : '#991b1b', fontWeight: '700' }}>
-                                {isActivo ? 'Activo' : 'Inactivo'}
+                                {isActivo ? '● Operativo' : '○ No Operativo'}
                               </span>
                             </div>
                             
@@ -605,7 +606,7 @@ export default function AccessGate({ onAuthenticated }) {
                                 type="button"
                                 onClick={() => requestSecurityPassword('toggle', item)}
                                 style={{ background: isActivo ? '#fef3c7' : '#dcfce7', color: isActivo ? '#92400e' : '#166534', border: '1px solid #fde68a', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}
-                                title={isActivo ? 'Desactivar acceso' : 'Activar acceso'}
+                                title={isActivo ? 'Desactivar acceso (No Operativo)' : 'Activar acceso (Operativo)'}
                               >
                                 {isActivo ? 'Desactivar' : 'Activar'}
                               </button>
@@ -629,6 +630,11 @@ export default function AccessGate({ onAuthenticated }) {
                           </div>
 
                           <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: '600' }}>{item.institucion}</div>
+                          
+                          <div style={{ fontSize: '0.73rem', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px', color: '#475569', fontFamily: 'monospace' }}>
+                            🗄️ Tabla SQL: <strong>{tablaNombre}</strong>
+                          </div>
+
                           {item.encargado_nombre && (
                             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Encargado: {item.encargado_nombre}</div>
                           )}
