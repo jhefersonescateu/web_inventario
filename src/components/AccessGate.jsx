@@ -41,6 +41,7 @@ export default function AccessGate({ onAuthenticated }) {
 
   const [adminMsg, setAdminMsg] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
+  const isAdminError = /error|no se pudo|no existe|ya existe|genera el mismo|no se cambió|http \d{3}/i.test(adminMsg);
 
   // Modal de Confirmación de Contraseña para acciones sensibles (Editar, Activar/Desactivar, Borrar)
   const [securityModal, setSecurityModal] = useState({
@@ -52,7 +53,7 @@ export default function AccessGate({ onAuthenticated }) {
     loading: false
   });
 
-  // Obtener lista de códigos autorizados desde el backend (registro_colegios)
+  // Obtener lista de códigos desde la tabla oficial codigos_acceso.
   const fetchAdminCodes = async () => {
     try {
       const apiUrl = getApiBaseUrl();
@@ -202,16 +203,20 @@ export default function AccessGate({ onAuthenticated }) {
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setAdminMsg(data.message);
         handleCancelEdit();
         fetchAdminCodes();
         setAdminTab('list');
       } else {
-        setAdminMsg(data.message || 'Error al guardar datos.');
+        const details = [data.message, data.error]
+          .filter((message, index, messages) => message && messages.indexOf(message) === index)
+          .join(' — ');
+        setAdminMsg(details || `Error al guardar datos (HTTP ${res.status}).`);
       }
     } catch (err) {
-      setAdminMsg('Error de conexión al guardar.');
+      console.error('Error al guardar institución:', err);
+      setAdminMsg(`Error de conexión al guardar: ${err.message}`);
     } finally {
       setAdminLoading(false);
     }
@@ -518,9 +523,9 @@ export default function AccessGate({ onAuthenticated }) {
                 style={{
                   marginBottom: '12px',
                   fontSize: '0.82rem',
-                  background: !adminMsg.toLowerCase().includes('error') ? '#f0fdf4' : '#fef2f2',
-                  borderColor: !adminMsg.toLowerCase().includes('error') ? '#bbf7d0' : '#fecaca',
-                  color: !adminMsg.toLowerCase().includes('error') ? '#166534' : '#991b1b'
+                  background: !isAdminError ? '#f0fdf4' : '#fef2f2',
+                  borderColor: !isAdminError ? '#bbf7d0' : '#fecaca',
+                  color: !isAdminError ? '#166534' : '#991b1b'
                 }}
               >
                 {adminMsg}
@@ -536,6 +541,11 @@ export default function AccessGate({ onAuthenticated }) {
                 <div style={{ fontSize: '0.78rem', color: '#78350f', marginBottom: '10px' }}>
                   Para <strong>{securityModal.type === 'delete' ? 'eliminar' : securityModal.type === 'edit' ? 'editar' : 'activar/desactivar'}</strong> el código "{securityModal.item?.codigo}", ingrese su contraseña de administrador:
                 </div>
+                {securityModal.type === 'delete' && (
+                  <div style={{ fontSize: '0.76rem', color: '#991b1b', fontWeight: '700', marginBottom: '10px' }}>
+                    Esta acción también elimina permanentemente la tabla de inventario y todos sus bienes.
+                  </div>
+                )}
 
                 <form onSubmit={handleConfirmSecurityAction} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <input
@@ -757,6 +767,4 @@ export default function AccessGate({ onAuthenticated }) {
     </div>
   );
 }
-
-
 

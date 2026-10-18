@@ -1,16 +1,32 @@
-# React + Vite
+# Inventario Patrimonial
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Aplicación web React/Vite con un backend Express que guarda los datos en Turso (SQLite/libSQL).
 
-Currently, two official plugins are available:
+## Base de datos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `acceso`: credenciales de los administradores.
+- `codigos_acceso`: fuente oficial de códigos y estado operativo.
+- `administracion`: institución y datos del encargado asociados al código.
+- `inventario_<codigo>`: bienes patrimoniales exclusivos de cada institución. El nombre se genera a partir del código normalizado; por ejemplo, `SENATI` usa `inventario_senati`.
+- `inventario_sesiones` e `inventario_detalles`: sesiones de toma física y bienes escaneados.
 
-## React Compiler
+Al registrar un código desde el panel de administración, el backend crea su tabla de inventario y guarda el código y la ficha administrativa. Al editar el código, renombra la tabla junto con sus datos. Al eliminarlo, se borran el registro, la ficha administrativa y su tabla de inventario; los bienes de esa tabla no se pueden recuperar después.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+La aplicación conserva las rutas `/api/registro-colegios` como alias para compatibilidad con versiones del frontend ya desplegadas, pero la fuente de verdad es `codigos_acceso`. Si existe una tabla antigua `registro_colegios`, al iniciar se copian sus registros a las tablas actuales y luego se archiva con un nombre `registro_colegios_legacy_*`; no se vuelve a importar ni se consulta para autenticar.
 
-## Expanding the Oxlint configuration
+## Configuración
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+El backend necesita estas variables de entorno:
+
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `PORT` (opcional; por defecto `3001`)
+
+El frontend puede definir `VITE_BACKEND_URL` para apuntar al backend desplegado. En desarrollo, iniciar el backend con `npm run server` y el frontend con `npm run dev`.
+
+## Comandos
+
+- `npm run dev`: iniciar Vite en desarrollo.
+- `npm run server`: iniciar el backend Express.
+- `npm run build`: compilar el frontend.
+- `npm run lint`: ejecutar Oxlint.

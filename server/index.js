@@ -21,7 +21,7 @@ let isTursoConnected = false;
 let dbInitPromise = null;
 
 // ── HELPER TABLA POR COLEGIO DINÁMICA ──────────────────────────────────────
-const createdTablesSet = new Set(['inventario_quinones']);
+const createdTablesSet = new Set();
 
 function getSchoolTableName(codigo) {
   if (!codigo || !codigo.trim()) return 'inventario_quinones';
@@ -81,78 +81,30 @@ async function ensureSchoolTableExists(tableName) {
     console.log(`✨ Tabla de inventario asegurada: ${safeName}`);
   } catch (err) {
     console.error(`❌ Error al crear tabla ${safeName}:`, err.message);
+    throw err;
   }
   return safeName;
 }
 
 async function resolveSchoolTable(colegio) {
-  if (!colegio || !colegio.trim()) return 'inventario_quinones';
-  const cleanCode = colegio.trim().toUpperCase();
+  const cleanCode = (colegio || 'QUIÑONES').trim().toUpperCase();
+  const result = await db.execute({
+    sql: 'SELECT codigo FROM codigos_acceso WHERE UPPER(codigo) = ? AND activo = 1',
+    args: [cleanCode]
+  });
+  if (!result.rows.length) {
+    throw new Error(`El código "${cleanCode}" no existe o está inactivo.`);
+  }
 
-  try {
-    const res = await db.execute({
-      sql: 'SELECT tabla_inventario FROM registro_colegios WHERE UPPER(codigo) = ?',
-      args: [cleanCode]
-    });
-    if (res.rows.length > 0 && res.rows[0].tabla_inventario) {
-      const tName = res.rows[0].tabla_inventario;
-      await ensureSchoolTableExists(tName);
-      return tName;
-    }
-  } catch (e) {}
-
-  const dynamicName = getSchoolTableName(cleanCode);
-  await ensureSchoolTableExists(dynamicName);
-  return dynamicName;
+  const tableName = getSchoolTableName(cleanCode);
+  await ensureSchoolTableExists(tableName);
+  return tableName;
 }
 
 // ── INICIALIZAR TABLAS EN TURSO ──────────────────────────────────────────────
 async function initDatabase() {
   try {
     await db.batch([
-      // Tabla general de registro de colegios y sus tablas asociadas
-      `CREATE TABLE IF NOT EXISTS registro_colegios (
-        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-        codigo              TEXT    NOT NULL UNIQUE,
-        institucion         TEXT    NOT NULL,
-        tabla_inventario    TEXT    NOT NULL UNIQUE,
-        encargado_nombre    TEXT    DEFAULT '',
-        encargado_telefono  TEXT    DEFAULT '',
-        direccion           TEXT    DEFAULT '',
-        activo              INTEGER DEFAULT 1,
-        created_at          TEXT    DEFAULT (datetime('now'))
-      )`,
-      // Tabla principal por defecto de bienes patrimoniales
-      `CREATE TABLE IF NOT EXISTS inventario_quinones (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        code          TEXT    NOT NULL UNIQUE,
-        name          TEXT    NOT NULL,
-        category      TEXT    DEFAULT 'Equipos Tecnológicos',
-        colegio       TEXT    DEFAULT 'QUIÑONES',
-        location      TEXT    DEFAULT '',
-        quantity      INTEGER DEFAULT 1,
-        status        TEXT    DEFAULT 'Bueno',
-        situacion     TEXT    DEFAULT '',
-        brand         TEXT    DEFAULT '',
-        model         TEXT    DEFAULT '',
-        serialNumber  TEXT    DEFAULT '',
-        alto          REAL,
-        ancho         REAL,
-        largo         REAL,
-        tipoMaterial  TEXT    DEFAULT '',
-        color         TEXT    DEFAULT '',
-        details       TEXT    DEFAULT '',
-        notes         TEXT    DEFAULT '',
-        customFields  TEXT    DEFAULT '{}',
-        specs         TEXT    DEFAULT '{}',
-        educationalLevel TEXT DEFAULT '',
-        responsible   TEXT    DEFAULT '',
-        verified      INTEGER DEFAULT 1,
-        scannedByDni  TEXT    DEFAULT '',
-        scannedAt     TEXT    DEFAULT '',
-        created_at    TEXT    DEFAULT (datetime('now')),
-        updated_at    TEXT    DEFAULT (datetime('now'))
-      )`,
       // Tabla de sesiones de inventario por ambiente
       `CREATE TABLE IF NOT EXISTS inventario_sesiones (
         id                  TEXT    PRIMARY KEY,
@@ -204,39 +156,91 @@ async function initDatabase() {
       )`
     ], 'write');
 
-    // Migraciones automáticas
-    try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_nombre TEXT DEFAULT ''`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE administracion ADD COLUMN encargado_telefono TEXT DEFAULT ''`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE administracion ADD COLUMN direccion TEXT DEFAULT ''`); } catch (e) {}
+    await ensureDatabaseColumn('administracion', 'encargado_nombre', "TEXT DEFAULT ''");
+    await ensureDatabaseColumn('administracion', 'encargado_telefono', "TEXT DEFAULT ''");
+    await ensureDatabaseColumn('administracion', 'direccion', "TEXT DEFAULT ''");
+    await ensureDatabaseColumn('codigos_acceso', 'institucion', "TEXT NOT NULL DEFAULT ''");
+    await ensureDatabaseColumn('codigos_acceso', 'activo', 'INTEGER DEFAULT 1');
+    await ensureDatabaseColumn('codigos_acceso', 'created_at', "TEXT DEFAULT (datetime('now'))");
 
-    // Insertar colegio por defecto si no existe
-    await db.execute(`
-      INSERT OR IGNORE INTO registro_colegios (codigo, institucion, tabla_inventario)
-      VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES', 'inventario_quinones')
-    `);
-    await db.execute(`
-      INSERT OR IGNORE INTO administracion (codigo, institucion)
-      VALUES ('QUIÑONES', 'I.E. JOSÉ ABELARDO QUIÑONES')
-    `);
-
-    // Sincronizar administracion -> registro_colegios
+    // Importar registros de la tabla antigua sin eliminarla ni perder sus datos.
     try {
-      const adminRows = await db.execute('SELECT * FROM administracion');
-      for (const row of adminRows.rows) {
-        const tableN = getSchoolTableName(row.codigo);
-        await db.execute({
-          sql: `INSERT OR IGNORE INTO registro_colegios
-                (codigo, institucion, tabla_inventario, encargado_nombre, encargado_telefono, direccion, activo)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          args: [row.codigo, row.institucion || row.codigo, tableN, row.encargado_nombre || '', row.encargado_telefono || '', row.direccion || '', row.activo ?? 1]
-        });
-        await ensureSchoolTableExists(tableN);
+      const legacyTable = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'registro_colegios'"
+      );
+      if (legacyTable.rows.length) {
+        const legacyRows = await db.execute('SELECT * FROM registro_colegios');
+        for (const row of legacyRows.rows) {
+          await db.execute({
+            sql: `INSERT OR IGNORE INTO codigos_acceso (codigo, institucion, activo, created_at)
+                  VALUES (?, ?, ?, ?)`,
+            args: [row.codigo, row.institucion || row.codigo, row.activo ?? 1, row.created_at || new Date().toISOString()]
+          });
+          await db.execute({
+            sql: `INSERT OR IGNORE INTO administracion
+                  (codigo, institucion, encargado_nombre, encargado_telefono, direccion, activo)
+                  VALUES (?, ?, ?, ?, ?, ?)`,
+            args: [
+              row.codigo,
+              row.institucion || row.codigo,
+              row.encargado_nombre || '',
+              row.encargado_telefono || '',
+              row.direccion || '',
+              row.activo ?? 1
+            ]
+          });
+        }
+        console.log(`Migrados ${legacyRows.rows.length} registros desde registro_colegios.`);
       }
-    } catch (syncErr) {
-      console.error('Error al sincronizar registro_colegios:', syncErr.message);
+    } catch (migrationError) {
+      console.error('Error al migrar registro_colegios:', migrationError.message);
+      throw migrationError;
     }
 
-    // Insertar credenciales de administrador por defecto en la tabla acceso si no existen
+    // Importar instituciones anteriores y completar sus metadatos en ambas tablas.
+    const adminRows = await db.execute('SELECT * FROM administracion');
+    for (const row of adminRows.rows) {
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO codigos_acceso (codigo, institucion, activo)
+              VALUES (?, ?, ?)`,
+        args: [row.codigo, row.institucion || row.codigo, row.activo ?? 1]
+      });
+    }
+
+    const codeRows = await db.execute('SELECT * FROM codigos_acceso');
+    const inventoryOwners = new Map();
+    const normalizedCodes = new Set();
+    for (const row of codeRows.rows) {
+      const normalizedCode = row.codigo.toUpperCase();
+      if (normalizedCodes.has(normalizedCode)) {
+        throw new Error(`El código "${row.codigo}" está duplicado sin distinguir mayúsculas.`);
+      }
+      normalizedCodes.add(normalizedCode);
+      const tableName = getSchoolTableName(row.codigo);
+      const tableOwner = inventoryOwners.get(tableName);
+      if (tableOwner && tableOwner.toUpperCase() !== row.codigo.toUpperCase()) {
+        throw new Error(`Los códigos "${tableOwner}" y "${row.codigo}" apuntan a la misma tabla ${tableName}.`);
+      }
+      inventoryOwners.set(tableName, row.codigo);
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO administracion
+              (codigo, institucion, activo)
+              VALUES (?, ?, ?)`,
+        args: [row.codigo, row.institucion || row.codigo, row.activo ?? 1]
+      });
+      await ensureSchoolTableExists(tableName);
+    }
+
+    const legacyRegistry = await db.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'registro_colegios'"
+    );
+    if (legacyRegistry.rows.length) {
+      const archiveName = `registro_colegios_legacy_${Date.now()}`;
+      await db.execute(`ALTER TABLE registro_colegios RENAME TO ${archiveName}`);
+      console.log(`Tabla antigua archivada como ${archiveName}.`);
+    }
+
+    // Insertar credenciales de administrador por defecto en la tabla acceso si no existen.
     await db.execute(
       `INSERT OR IGNORE INTO acceso (email, password)
        VALUES ('admin@gmail.com', '990246774')`
@@ -244,9 +248,17 @@ async function initDatabase() {
 
     isTursoConnected = true;
     console.log('🗄️  Conectado exitosamente a Turso DB (SQLite en la Nube)');
-    console.log('📋 Tablas: registro_colegios | inventario_quinones | inventario_sesiones | inventario_detalles | acceso | administracion');
+    console.log('📋 Tablas: codigos_acceso | administracion | acceso | inventario_sesiones | inventario_detalles | inventario_<codigo>');
   } catch (err) {
     console.error('❌ Error al inicializar Turso DB:', err.message);
+    throw err;
+  }
+}
+
+async function ensureDatabaseColumn(tableName, columnName, definition) {
+  const columns = await db.execute(`PRAGMA table_info(${tableName})`);
+  if (!columns.rows.some(column => column.name === columnName)) {
+    await db.execute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 }
 
@@ -266,7 +278,13 @@ app.use(async (req, res, next) => {
   try {
     await ensureDbInitialized();
   } catch (e) {
-    console.error('Error awaiting DB init:', e);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.error('Error awaiting DB initialization:', errorMessage);
+    return res.status(503).json({
+      success: false,
+      message: 'La base de datos no está disponible. No se procesó la solicitud.',
+      error: errorMessage
+    });
   }
   next();
 });
@@ -375,7 +393,7 @@ function broadcastScanEvent(data) {
 
 // ── REST ENDPOINTS ────────────────────────────────────────────────────────────
 
-// 1. Login — Valida código contra la tabla general registro_colegios y verifica si está OPERATIVO
+// 1. Login — Valida el código oficial en codigos_acceso.
 app.post('/api/auth/login', async (req, res) => {
   const { code } = req.body;
   if (!code || !code.trim()) {
@@ -384,25 +402,19 @@ app.post('/api/auth/login', async (req, res) => {
   const normalized = code.trim().toUpperCase();
 
   try {
-    // Buscar el código en registro_colegios
-    let result = await db.execute({
-      sql: 'SELECT * FROM registro_colegios WHERE UPPER(codigo) = ?',
+    const result = await db.execute({
+      sql: `SELECT c.codigo, c.activo, COALESCE(a.institucion, c.institucion, c.codigo) AS institucion
+            FROM codigos_acceso c
+            LEFT JOIN administracion a ON UPPER(a.codigo) = UPPER(c.codigo)
+            WHERE UPPER(c.codigo) = ?`,
       args: [normalized]
     });
-
-    // Fallback a la tabla administracion o codigos_acceso si no está en registro_colegios
-    if (result.rows.length === 0) {
-      result = await db.execute({
-        sql: 'SELECT * FROM administracion WHERE UPPER(codigo) = ?',
-        args: [normalized]
-      });
-    }
 
     if (result.rows.length === 0) {
       console.log(`🚫 Código de acceso rechazado (no existe): ${normalized}`);
       return res.status(401).json({
         success: false,
-        message: '❌ Código no autorizado. No existe en el registro de colegios.'
+        message: '❌ Código no autorizado. No existe en codigos_acceso.'
       });
     }
 
@@ -418,8 +430,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const institution = registro.institucion || normalized;
-    const tableName = registro.tabla_inventario || getSchoolTableName(normalized);
-    await ensureSchoolTableExists(tableName);
+    const tableName = await resolveSchoolTable(normalized);
 
     console.log(`🔑 Login exitoso: ${normalized} → ${institution} | Tabla: ${tableName}`);
     return res.json({
@@ -466,13 +477,21 @@ app.post('/api/auth/admin-login', async (req, res) => {
   }
 });
 
-// 1b. GET /api/registro-colegios & GET /api/administracion — Lista general de colegios y códigos
+// Mantener las rutas antiguas como alias para el frontend desplegado.
 const getSchoolsHandler = async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM registro_colegios ORDER BY created_at DESC');
+    const result = await db.execute(`
+      SELECT c.id, c.codigo, c.institucion, c.activo, c.created_at,
+             a.institucion AS institucion_admin,
+             a.encargado_nombre, a.encargado_telefono, a.direccion
+      FROM codigos_acceso c
+      LEFT JOIN administracion a ON UPPER(a.codigo) = UPPER(c.codigo)
+      ORDER BY c.created_at DESC
+    `);
     const codigos = result.rows.map(row => ({
       ...row,
-      tabla_inventario: row.tabla_inventario || getSchoolTableName(row.codigo),
+      institucion: row.institucion_admin || row.institucion,
+      tabla_inventario: getSchoolTableName(row.codigo),
       estado_operativo: row.activo === 1 ? 'Operativo' : 'Inactivo'
     }));
     return res.json({ success: true, count: codigos.length, codigos });
@@ -484,10 +503,10 @@ const getSchoolsHandler = async (req, res) => {
 app.get('/api/registro-colegios', getSchoolsHandler);
 app.get('/api/administracion',     getSchoolsHandler);
 
-// 1c. POST /api/registro-colegios & POST /api/administracion — Crear nuevo colegio y generar su tabla de inventario dinámica
+// Crear un código, su ficha administrativa y su tabla exclusiva de inventario.
 const saveSchoolHandler = async (req, res) => {
   const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
-  if (!codigo || !codigo.trim()) {
+  if (typeof codigo !== 'string' || !codigo.trim()) {
     return res.status(400).json({ success: false, message: 'El campo "codigo" es obligatorio' });
   }
   const cleanCodigo = codigo.trim().toUpperCase();
@@ -498,26 +517,36 @@ const saveSchoolHandler = async (req, res) => {
   const tableName = getSchoolTableName(cleanCodigo);
 
   try {
-    // 1. Crear tabla propia de inventario para este colegio
+    const existingCodes = await db.execute('SELECT codigo FROM codigos_acceso');
+    const duplicateCode = existingCodes.rows.find(row => row.codigo.toUpperCase() === cleanCodigo);
+    if (duplicateCode) {
+      return res.status(409).json({
+        success: false,
+        message: `El código "${duplicateCode.codigo}" ya existe.`
+      });
+    }
+    const conflictingCode = existingCodes.rows.find(row =>
+      getSchoolTableName(row.codigo) === tableName
+    );
+    if (conflictingCode) {
+      return res.status(409).json({
+        success: false,
+        message: `El código "${cleanCodigo}" genera el mismo nombre de tabla que "${conflictingCode.codigo}".`
+      });
+    }
+
     await ensureSchoolTableExists(tableName);
-
-    // 2. Registrar en la tabla general registro_colegios
-    await db.execute({
-      sql: `INSERT INTO registro_colegios (codigo, institucion, tabla_inventario, encargado_nombre, encargado_telefono, direccion, activo)
-            VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      args: [cleanCodigo, cleanInst, tableName, cleanEncargado, cleanTel, cleanDir]
-    });
-
-    // 3. Sincronizar también en administracion y codigos_acceso por compatibilidad
-    await db.execute({
-      sql: `INSERT OR IGNORE INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion, activo)
-            VALUES (?, ?, ?, ?, ?, 1)`,
-      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir]
-    });
-    await db.execute({
-      sql: 'INSERT OR IGNORE INTO codigos_acceso (codigo, institucion) VALUES (?, ?)',
-      args: [cleanCodigo, cleanInst]
-    });
+    await db.batch([
+      {
+        sql: 'INSERT INTO codigos_acceso (codigo, institucion, activo) VALUES (?, ?, 1)',
+        args: [cleanCodigo, cleanInst]
+      },
+      {
+        sql: `INSERT OR IGNORE INTO administracion (codigo, institucion, encargado_nombre, encargado_telefono, direccion, activo)
+              VALUES (?, ?, ?, ?, ?, 1)`,
+        args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir]
+      }
+    ], 'write');
 
     console.log(`➕ Colegio Creado: ${cleanCodigo} (${cleanInst}) → Tabla Creada: "${tableName}"`);
     return res.json({
@@ -528,21 +557,31 @@ const saveSchoolHandler = async (req, res) => {
       tabla: tableName
     });
   } catch (err) {
-    if (err.message && err.message.includes('UNIQUE')) {
-      return res.status(400).json({ success: false, message: `El código "${cleanCodigo}" ya existe en el registro de colegios.` });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error(`Error al registrar colegio ${cleanCodigo} en ${tableName}:`, errorMessage);
+    if (errorMessage.includes('UNIQUE')) {
+      return res.status(409).json({
+        success: false,
+        message: `El código "${cleanCodigo}" ya existe.`,
+        error: errorMessage
+      });
     }
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: 'No se pudo registrar la institución.',
+      error: errorMessage
+    });
   }
 };
 
 app.post('/api/registro-colegios', saveSchoolHandler);
 app.post('/api/administracion',     saveSchoolHandler);
 
-// 1d. PUT /api/administracion/:id & /api/registro-colegios/:id — Editar información de un colegio
+// Editar un código y su ficha sin perder los bienes guardados.
 const updateSchoolHandler = async (req, res) => {
   const { id } = req.params;
   const { codigo, institucion, encargado_nombre, encargado_telefono, direccion } = req.body;
-  if (!codigo || !codigo.trim()) {
+  if (typeof codigo !== 'string' || !codigo.trim()) {
     return res.status(400).json({ success: false, message: 'El código es obligatorio.' });
   }
   const cleanCodigo = codigo.trim().toUpperCase();
@@ -553,46 +592,119 @@ const updateSchoolHandler = async (req, res) => {
   const tableName = getSchoolTableName(cleanCodigo);
 
   try {
-    await ensureSchoolTableExists(tableName);
-
-    await db.execute({
-      sql: `UPDATE registro_colegios SET codigo = ?, institucion = ?, tabla_inventario = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ?`,
-      args: [cleanCodigo, cleanInst, tableName, cleanEncargado, cleanTel, cleanDir, id]
+    const currentResult = await db.execute({
+      sql: 'SELECT codigo FROM codigos_acceso WHERE id = ?',
+      args: [id]
     });
+    const currentCode = currentResult.rows[0]?.codigo;
+    if (!currentCode) {
+      return res.status(404).json({ success: false, message: 'Código no encontrado.' });
+    }
 
-    await db.execute({
-      sql: `UPDATE administracion SET codigo = ?, institucion = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)`,
-      args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir, id, cleanCodigo]
-    });
+    const existingCodes = await db.execute('SELECT codigo FROM codigos_acceso');
+    const duplicateCode = existingCodes.rows.find(row =>
+      row.codigo.toUpperCase() === cleanCodigo &&
+      row.codigo.toUpperCase() !== currentCode.toUpperCase()
+    );
+    if (duplicateCode) {
+      return res.status(409).json({ success: false, message: `El código "${duplicateCode.codigo}" ya existe.` });
+    }
+    const conflictingCode = existingCodes.rows.find(row =>
+      row.codigo.toUpperCase() !== currentCode.toUpperCase() &&
+      getSchoolTableName(row.codigo) === tableName
+    );
+    if (conflictingCode) {
+      return res.status(409).json({
+        success: false,
+        message: `El código "${cleanCodigo}" genera el mismo nombre de tabla que "${conflictingCode.codigo}".`
+      });
+    }
 
-    console.log(`✏️ Colegio actualizado (ID: ${id}): ${cleanCodigo} -> Tabla: ${tableName}`);
+    const oldTableName = getSchoolTableName(currentCode);
+    let renamedTable = false;
+    if (oldTableName !== tableName) {
+      const targetTable = await db.execute({
+        sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        args: [tableName]
+      });
+      if (targetTable.rows.length) {
+        return res.status(409).json({
+          success: false,
+          message: `Ya existe la tabla "${tableName}". No se cambió el código para evitar mezclar inventarios.`
+        });
+      }
+      const sourceTable = await db.execute({
+        sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        args: [oldTableName]
+      });
+      if (sourceTable.rows.length) {
+        await db.execute(`ALTER TABLE ${oldTableName} RENAME TO ${tableName}`);
+        createdTablesSet.delete(oldTableName);
+        createdTablesSet.add(tableName);
+        renamedTable = true;
+      } else {
+        await ensureSchoolTableExists(tableName);
+      }
+    } else {
+      await ensureSchoolTableExists(tableName);
+    }
+
+    try {
+      await db.batch([
+        {
+          sql: 'UPDATE codigos_acceso SET codigo = ?, institucion = ? WHERE id = ?',
+          args: [cleanCodigo, cleanInst, id]
+        },
+        {
+          sql: `UPDATE administracion
+                SET codigo = ?, institucion = ?, encargado_nombre = ?, encargado_telefono = ?, direccion = ?
+                WHERE UPPER(codigo) = UPPER(?)`,
+          args: [cleanCodigo, cleanInst, cleanEncargado, cleanTel, cleanDir, currentCode]
+        },
+        { sql: `UPDATE ${tableName} SET colegio = ?`, args: [cleanCodigo] },
+        {
+          sql: 'UPDATE inventario_sesiones SET colegio = ? WHERE UPPER(colegio) = UPPER(?)',
+          args: [cleanCodigo, currentCode]
+        }
+      ], 'write');
+    } catch (updateError) {
+      if (renamedTable) {
+        await db.execute(`ALTER TABLE ${tableName} RENAME TO ${oldTableName}`);
+        createdTablesSet.delete(tableName);
+      }
+      throw updateError;
+    }
+
+    console.log(`✏️ Colegio actualizado (ID: ${id}): ${currentCode} -> ${cleanCodigo} | Tabla: ${tableName}`);
     return res.json({ success: true, message: `Información de ${cleanCodigo} actualizada correctamente.`, tabla: tableName });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error(`Error al actualizar colegio ${cleanCodigo}:`, errorMessage);
+    if (errorMessage.includes('UNIQUE')) {
+      return res.status(409).json({ success: false, message: `El código "${cleanCodigo}" ya existe.` });
+    }
+    return res.status(500).json({ success: false, error: errorMessage });
   }
 };
 
 app.put('/api/registro-colegios/:id', updateSchoolHandler);
 app.put('/api/administracion/:id',     updateSchoolHandler);
 
-// 1e. PATCH /api/administracion/:id/toggle & /api/registro-colegios/:id/toggle — Activar / Desactivar código (Estado Operativo)
+// Activar o desactivar un código en la tabla oficial.
 const toggleSchoolHandler = async (req, res) => {
   const { id } = req.params;
   try {
-    const curr = await db.execute({ sql: 'SELECT codigo, activo FROM registro_colegios WHERE id = ?', args: [id] });
-    let record = curr.rows[0];
-    if (!record) {
-      const fallback = await db.execute({ sql: 'SELECT codigo, activo FROM administracion WHERE id = ?', args: [id] });
-      record = fallback.rows[0];
-    }
+    const curr = await db.execute({ sql: 'SELECT codigo, activo FROM codigos_acceso WHERE id = ?', args: [id] });
+    const record = curr.rows[0];
     if (!record) return res.status(404).json({ success: false, message: 'Código no encontrado' });
 
     const newStatus = record.activo === 1 ? 0 : 1;
     const codigo = record.codigo;
 
-    await db.execute({ sql: 'UPDATE registro_colegios SET activo = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [newStatus, id, codigo] });
-    await db.execute({ sql: 'UPDATE administracion SET activo = ? WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [newStatus, id, codigo] });
-    await db.execute({ sql: 'UPDATE codigos_acceso SET activo = ? WHERE UPPER(codigo) = UPPER(?)', args: [newStatus, codigo] });
+    await db.batch([
+      { sql: 'UPDATE codigos_acceso SET activo = ? WHERE id = ?', args: [newStatus, id] },
+      { sql: 'UPDATE administracion SET activo = ? WHERE UPPER(codigo) = UPPER(?)', args: [newStatus, codigo] }
+    ], 'write');
 
     const statusText = newStatus === 1 ? 'ACTIVADO (Operativo)' : 'DESACTIVADO (No Operativo)';
     console.log(`🔄 Colegio ${codigo} ${statusText}`);
@@ -605,25 +717,38 @@ const toggleSchoolHandler = async (req, res) => {
 app.patch('/api/registro-colegios/:id/toggle', toggleSchoolHandler);
 app.patch('/api/administracion/:id/toggle',     toggleSchoolHandler);
 
-// 1f. DELETE /api/administracion/:id & /api/registro-colegios/:id — Eliminar un colegio
+// Eliminar el código y su tabla de inventario de forma permanente.
 const deleteSchoolHandler = async (req, res) => {
   const { id } = req.params;
   try {
-    const itemRes = await db.execute({ sql: 'SELECT codigo FROM registro_colegios WHERE id = ?', args: [id] });
-    const item = itemRes.rows[0];
-    const codigo = item ? item.codigo : '';
-
-    await db.execute({ sql: 'DELETE FROM registro_colegios WHERE id = ?', args: [id] });
-    await db.execute({ sql: 'DELETE FROM administracion WHERE id = ? OR UPPER(codigo) = UPPER(?)', args: [id, codigo] });
-    if (codigo) {
-      await db.execute({ sql: 'DELETE FROM codigos_acceso WHERE UPPER(codigo) = UPPER(?)', args: [codigo] });
+    const itemResult = await db.execute({
+      sql: 'SELECT codigo FROM codigos_acceso WHERE id = ?',
+      args: [id]
+    });
+    const codigo = itemResult.rows[0]?.codigo;
+    if (!codigo) {
+      return res.status(404).json({ success: false, message: 'Código no encontrado.' });
     }
+    const tableName = getSchoolTableName(codigo);
 
-    console.log(`🗑️ Colegio eliminado (ID: ${id})`);
-    return res.json({ success: true, message: 'Colegio eliminado del registro.' });
+    await db.batch([
+      `DROP TABLE IF EXISTS ${tableName}`,
+      { sql: 'DELETE FROM administracion WHERE UPPER(codigo) = UPPER(?)', args: [codigo] },
+      { sql: 'DELETE FROM codigos_acceso WHERE id = ?', args: [id] }
+    ], 'write');
+    createdTablesSet.delete(tableName);
+
+    console.log(`🗑️ Colegio ${codigo} eliminado junto con su inventario (${tableName}).`);
+    return res.json({
+      success: true,
+      message: `Código ${codigo}, datos administrativos y tabla de inventario ${tableName} eliminados.`,
+      codigo,
+      tabla: tableName
+    });
   } catch (err) {
-    console.error('Error al eliminar colegio:', err.message);
-    return res.status(500).json({ success: false, error: err.message });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('Error al eliminar colegio y su inventario:', errorMessage);
+    return res.status(500).json({ success: false, error: errorMessage });
   }
 };
 
